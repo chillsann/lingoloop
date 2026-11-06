@@ -1,5 +1,8 @@
 /* Lingoloop Service Worker — 离线可用，不联网、不追踪 */
-const CACHE = 'lingoloop-v6';
+const CACHE = 'lingoloop-v7';
+/* 音频单独放一个常驻缓存：升级版本时只清旧版页面缓存，
+   用户已经听过的离线发音不会因为发版而丢失。 */
+const AUDIO_CACHE = 'lingoloop-audio';
 const CORE = [
   './', './index.html', './styles.css', './app.js',
   './data/words.js', './data/audio/manifest.js',
@@ -20,18 +23,23 @@ self.addEventListener('install', (e) => {
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((keys) =>
-    Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+    Promise.all(keys.filter((k) => k.startsWith('lingoloop-v') && k !== CACHE).map((k) => caches.delete(k)))
   ).then(() => self.clients.claim()));
 });
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== self.location.origin) return;
-  e.respondWith(
-    caches.match(e.request).then((hit) => hit || fetch(e.request).then((res) => {
-      if (res && res.ok) {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
-      }
+  e.respondWith((async () => {
+    const url = new URL(e.request.url);
+    const isAudio = url.pathname.includes('/data/audio/') && url.pathname.endsWith('.mp3');
+    const c = await caches.open(isAudio ? AUDIO_CACHE : CACHE);
+    const hit = await c.match(e.request);
+    if (hit) return hit;
+    try {
+      const res = await fetch(e.request);
+      if (res && res.ok) c.put(e.request, res.clone()).catch(() => {});
       return res;
-    }).catch(() => caches.match('./index.html')))
-  );
+    } catch {
+      return (await caches.match('./index.html')) || Response.error();
+    }
+  })());
 });

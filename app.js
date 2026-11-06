@@ -34,7 +34,8 @@ function defaultState() {
     lang: 'es', xp: 0, todayXp: 0, today: dateKey(),
     hearts: HEARTS_MAX, heartAt: Date.now(), streak: 0, lastActive: '',
     dailyGoal: 20, completed: [], stars: {}, wordStats: {}, mistakes: [],
-    dailyXp: {}, customUnits: [], sound: true, tts: true, rate: 0.9
+    dailyXp: {}, customUnits: [], sound: true, tts: true, rate: 0.9,
+    optSpeak: true, checkSpeak: true
   };
 }
 let S = load();
@@ -225,21 +226,32 @@ function playTTS(text, lang, slow, btn) {
   } catch { return false; }
 }
 /** 在线词典音频，仅用于自定义导入的词（audio 标签不受 CORS 限制） */
-function playOnline(text, langId, btn) {
+function playOnline(text, langId, btn, silent = false) {
   const url = 'https://dict.youdao.com/dictvoice?audio=' + encodeURIComponent(text) + '&le=' + (ONLINE_LE[langId] || 'en');
-  return playUrl(url, false, btn, () => toast('这个词暂时无法发音'));
+  return playUrl(url, false, btn, silent ? null : () => toast('这个词暂时无法发音'));
 }
-/** 发音主入口。opts: { btn, id, slow, auto }；id 传 xxx-ex 即朗读整句例句 */
+/** 发音主入口。opts: { btn, id, slow, auto, silent }；id 传 xxx-ex 即朗读整句例句 */
 function speak(text, langId, opts = {}) {
-  const { btn = null, id = null, slow = false, auto = false } = opts;
+  const { btn = null, id = null, slow = false, auto = false, silent = false } = opts;
   const lang = langOf(langId || S.lang);
   if (!S.tts || !lang.ttsOk || !text) return;
   const fallback = () => {
     if (auto) { toast('🔊 点一下喇叭就能听发音'); return; }
-    if (!playTTS(text, lang, slow, btn)) playOnline(text, langId, btn);
+    if (!playTTS(text, lang, slow, btn)) playOnline(text, langId, btn, silent);
   };
   if (id && AUDIO_IDS.has(id) && playFile(id, slow, btn, fallback)) return;
   fallback();
+}
+/* 归一化文本，用来把「选项文字 / 句子词块」匹配回词库里已有的离线 mp3。
+   故意不用 \p{L} 之类的 Unicode 属性转义，兼容老版本微信 X5 内核。 */
+const normText = (s) => String(s ?? '').toLocaleLowerCase()
+  .replace(/[\s.,!?¡¿;:'"“”„«»()\[\]{}…、。，！？；：（）「」《》\/\\–—-]/g, '');
+/** 找这个文本对应的内置单词音频 id；找不到返回 null（交给在线/系统语音兜底） */
+function wordAudioId(text, langId) {
+  const t = normText(text);
+  if (!t) return null;
+  const hit = wordsOfLang(langId).find((w) => AUDIO_IDS.has(w.id) && normText(w.word) === t);
+  return hit ? hit.id : null;
 }
 
 /* ------------------------------------------------------------ 提示 UI */
@@ -384,6 +396,27 @@ function closeQuiz(force = false) {
 function qKindLabel(q) {
   return q.kindLabel || ({ word2zh: '选出中文意思', zh2word: '选出正确写法', listen: '听发音，选单词', spell: '选出正确拼写', sentence: '把单词排成句子' })[q.type] || '练习';
 }
+/** 点选项即发音：外语选项读该选项本身，中文释义选项读题干里的外语单词。
+    干扰项基本都是词库里已有的词，能直接复用离线 mp3，微信里也不用联网。 */
+function speakOption(q, i) {
+  if (!Q || Q.checked || !S.tts || !S.optSpeak) return;
+  const lang = langOf(Q.langId);
+  if (!lang.ttsOk) return;
+  if (q.type === 'listen' && q.noAudio) return;   // 方言「选正确读音」题本来就没有语音
+  let text = q.options[i], id = null;
+  if (q.type === 'word2zh') { text = q.word.word; id = q.word.id; }
+  else id = wordAudioId(text, Q.langId);
+  speak(text, Q.langId, { id, silent: true });
+}
+/** 句子排序题点词块：优先复用词库里该词的内置音频，否则在线/系统语音读这个词块 */
+function speakChip(q, i) {
+  if (!Q || Q.checked || !S.tts || !S.optSpeak) return;
+  const lang = langOf(Q.langId);
+  if (!lang.ttsOk) return;
+  const clean = String(q.chops[i] || '').replace(/[.,!?¡¿;:]/g, '').trim();
+  if (!clean) return;
+  speak(clean, Q.langId, { id: wordAudioId(clean, Q.langId), silent: true });
+}
 function renderQuiz() {
   if (!Q) return;
   if (Q.out) { renderResult(); return; }
@@ -396,9 +429,9 @@ function renderQuiz() {
     const placed = Q.placed.map((i) => `<button class="chip placed" data-act="unplace" data-i="${i}"><span dir="auto">${esc(q.chops[i])}</span></button>`).join('');
     body = `<div class="q-kind">${qKindLabel(q)} · ${esc(lang.name)}</div>
       <h2 class="q-title">翻译这句话</h2><p class="q-hint">${esc(w.exZh || w.zh)}</p>
-      <div class="answer-slot">${placed || '<span class="placeholder">依次点击下方词块…</span>'}</div>
+      <div class="answer-slot">${placed || '<span class="placeholder">依次点击下方词块…（点一下会发音）</span>'}</div>
       <div class="wordbank">${q.chops.map((c, i) => `<button class="chip ${Q.placed.includes(i) ? 'used' : ''}" data-act="place" data-i="${i}" ${Q.placed.includes(i) ? 'disabled' : ''}><span dir="auto">${esc(c)}</span></button>`).join('')}</div>
-      <div class="q-example">💡 提示：${esc(w.zh)}${w.pron ? ` · ${esc(w.pron)}` : ''}</div>`;
+      <div class="q-example">💡 提示：${esc(w.zh)}${w.pron ? ` · ${esc(w.pron)}` : ''} · 点词块可听发音</div>`;
   } else {
     const isListen = q.type === 'listen' && !q.noAudio;
     const isSpell = q.type === 'spell', isPron = q.type === 'listen' && q.noAudio;
@@ -410,7 +443,7 @@ function renderQuiz() {
     else if (q.type === 'word2zh') head = `<div class="q-word">${dv(w.word)}</div><div class="q-ipa">${lang.ttsOk ? esc(w.pron || '') : '近似读音 · ' + esc(w.pron || '')}</div>${say(w.word, '听发音')}`;
     else head = `<div class="q-word">${esc(w.zh)}</div><div class="q-ipa">选出对应的${esc(lang.name)}说法</div>`;
     const titles = { word2zh: '这是什么意思？', zh2word: `「${esc(w.zh)}」怎么说？`, listen: isPron ? '选出正确读音' : '你听到了什么？', spell: `「${esc(w.zh)}」怎么写？` };
-    const hint = isListen ? '点击喇叭播放，可以反复听' : isPron ? `${esc(lang.name)}暂无语音合成，这里用近似注音练习` : '点击选项后按「检查」，也可以按键盘 1–4';
+    const hint = isListen ? '点击喇叭播放，可以反复听；点选项也会读一遍' : isPron ? `${esc(lang.name)}暂无语音合成，这里用近似注音练习` : '点选项就会发音，选好后按「检查」，也可以按键盘 1–4';
     body = `<div class="q-kind ${isListen ? 'listen' : ''}">${qKindLabel(q)} · ${esc(lang.name)}</div>
       <h2 class="q-title">${titles[q.type] || '选一选'}</h2><p class="q-hint">${hint}</p>
       <div style="margin-bottom:26px">${head}</div>
@@ -427,7 +460,7 @@ function renderQuiz() {
     ? `<button class="ex-speak ex-speak--fb" data-act="speak" data-text="${esc(w.ex)}" data-lang="${esc(Q.langId)}" data-id="${esc(w.id)}-ex" aria-label="朗读整句例句">🔊 听整句</button>` : '';
   const fb = Q.checked
     ? `<div class="feedback ${Q.lastOk ? 'ok' : 'no'}"><b><span class="feedback-ico">${Q.lastOk ? '✓' : '✕'}</span>${Q.lastOk ? pick(['很好！', '答对了', '漂亮', '就是这个']) : '再记一下'}</b>
-        <small>${Q.lastOk ? `+${Q.lastXp} XP` : `正确答案：${esc(q.answer)}`}</small>${Q.lastOk ? exBtn : ''}</div>`
+        <small>${Q.lastOk ? `+${Q.lastXp} XP` : `正确答案：${esc(q.answer)}`}</small>${exBtn}</div>`
     : `<div class="feedback"><b style="color:var(--ink-3);font-size:14px">第 ${Q.idx + 1} / ${Q.questions.length} 题 · ${esc(lang.name)}</b><small>答错会扣一颗红心，别紧张</small></div>`;
   const canCheck = q.type === 'sentence' ? Q.placed.length === q.chops.length : Q.selected !== null;
   const btnLabel = Q.checked ? (Q.idx === Q.questions.length - 1 ? '完成' : '继续') : '检查';
@@ -451,12 +484,15 @@ function doCheck() {
       ? norm(Q.placed.map((i) => q.chops[i]).join(' ')) === norm(q.answer)
       : q.options[Q.selected] === q.answer;
     Q.lastOk = ok; Q.lastXp = ok ? 10 : 0; Q.checked = true;
+    /* 按「检查」后统一朗读完整例句：答对跟读一遍，答错更该听一遍正确说法。
+       极少数没有整句音频的词回退到单词音频。 */
+    if (S.checkSpeak) {
+      const exId = q.word.id + '-ex';
+      if (q.word.ex && AUDIO_IDS.has(exId)) speak(q.word.ex, Q.langId, { id: exId });
+      else speak(q.word.word, Q.langId, { id: q.word.id });
+    }
     if (ok) {
       Q.correct++; Q.xp += Q.lastXp; beep(true);
-      /* 句子排序题答对后朗读完整例句；其余题型朗读单词 */
-      if (q.type === 'sentence' && q.word.ex && AUDIO_IDS.has(q.word.id + '-ex'))
-        speak(q.word.ex, Q.langId, { id: q.word.id + '-ex' });
-      else speak(q.word.word, Q.langId, { id: q.word.id });
       const st = S.wordStats[q.word.id] || { c: 0, w: 0, lv: 0 };
       st.c++; st.lv = clamp((st.lv || 0) + 1, 0, 5); S.wordStats[q.word.id] = st;
       if (Q.review) S.mistakes = S.mistakes.filter((id) => id !== q.word.id);
@@ -676,13 +712,17 @@ function viewSettings() {
     <div class="card"><h3 class="card-title">声音与发音</h3>
       <div class="switch-row"><div class="txt"><b>答题提示音</b><span>答对 / 答错时的轻微提示</span></div>
         <button class="switch ${S.sound ? 'on' : ''}" data-act="toggle" data-k="sound" aria-label="答题提示音"></button></div>
-      <div class="switch-row"><div class="txt"><b>自动朗读外语</b><span>关闭后所有发音静音（含内置音频）</span></div>
+      <div class="switch-row"><div class="txt"><b>自动朗读外语</b><span>总开关，关闭后所有发音静音（含内置音频）</span></div>
         <button class="switch ${S.tts ? 'on' : ''}" data-act="toggle" data-k="tts" aria-label="自动朗读"></button></div>
+      <div class="switch-row"><div class="txt"><b>点选项就发音</b><span>选择题每点一个选项读一遍；句子题点词块也会读</span></div>
+        <button class="switch ${S.optSpeak ? 'on' : ''}" data-act="toggle" data-k="optSpeak" aria-label="点选项发音"></button></div>
+      <div class="switch-row"><div class="txt"><b>提交后朗读整句</b><span>按「检查」后自动朗读完整例句，答错也读</span></div>
+        <button class="switch ${S.checkSpeak ? 'on' : ''}" data-act="toggle" data-k="checkSpeak" aria-label="提交后朗读整句"></button></div>
       <div class="switch-row"><div class="txt"><b>朗读语速</b><span>当前 ${S.rate}× · 仅作用于系统语音；内置音频可用「慢速再听一次」</span></div>
         <div class="goal-options">${[0.7, 0.9, 1.1].map((r) => `<button class="goal-opt ${S.rate === r ? 'active' : ''}" data-act="rate" data-v="${r}">${r}×</button>`).join('')}</div></div>
       <div style="margin-top:14px;padding:14px 16px;background:var(--green-tint);border:1px solid #dcefe2;border-radius:12px">
         <b style="font-size:13.5px">🎧 内置离线发音 ${AUDIO_IDS.size} 条</b>
-        <p style="font-size:12.5px;color:var(--ink-2);margin:7px 0">西 / 法 / 俄 / 德 / 日 / 韩 / 意 / 葡 / 阿拉伯语共 <b>9 门语言、216 个单词 + 216 句完整例句</b>，全部由微软神经语音生成，多音节短语与整句都能完整朗读。<b>微信、QQ 内置浏览器都能播放</b>，不依赖浏览器语音合成；每条发音首次播放后自动缓存，之后断网也能听。上海话与闽南话两门方言暂无语音，仍用近似注音练习。</p>
+        <p style="font-size:12.5px;color:var(--ink-2);margin:7px 0">西 / 法 / 俄 / 德 / 日 / 韩 / 意 / 葡 / 阿拉伯语共 <b>9 门语言、216 个单词 + 216 句完整例句</b>，全部由微软神经语音生成，多音节短语与整句都能完整朗读。<b>微信、QQ 内置浏览器都能播放</b>，不依赖浏览器语音合成；每条发音首次播放后自动缓存，之后断网也能听。<b>答题时点选项即发音，按「检查」后自动朗读整句</b>（可在上面单独关掉）。上海话与闽南话两门方言暂无语音，仍用近似注音练习。</p>
         <p style="font-size:12px;color:var(--ink-3);margin:0 0 10px">当前环境：${voices.length ? `系统语音可用（${voices.length} 个音色）` : '浏览器未提供系统语音（常见于微信内置浏览器）→ 已自动使用内置音频'} · 播放引擎已针对微信 X5 内核解锁${mediaUnlocked ? '（已就绪）' : '（等待首次触摸）'}</p>
         <div class="btn-row" style="justify-content:flex-start;gap:8px;flex-wrap:wrap">
           <button class="btn btn-outline btn-sm" data-act="speak" data-text="hola" data-lang="es" data-id="es-u1-1">🔊 测单词</button>
@@ -777,8 +817,18 @@ document.addEventListener('click', (e) => {
     if (rev && !id) startQuiz(null, true, S.mistakes.map(wordById).filter((w) => w && w.langId === lid), lid);
     else startQuiz(id, rev, null, lid); return;
   }
-  if (act === 'select') { if (!Q || Q.checked || Q.questions[Q.idx].type === 'sentence') return; Q.selected = Number(el.dataset.i); renderQuiz(); return; }
-  if (act === 'place') { if (!Q || Q.checked) return; Q.placed.push(Number(el.dataset.i)); renderQuiz(); return; }
+  if (act === 'select') {
+    if (!Q || Q.checked || Q.questions[Q.idx].type === 'sentence') return;
+    const i = Number(el.dataset.i); Q.selected = i;
+    speakOption(Q.questions[Q.idx], i);
+    renderQuiz(); return;
+  }
+  if (act === 'place') {
+    if (!Q || Q.checked) return;
+    const i = Number(el.dataset.i); Q.placed.push(i);
+    speakChip(Q.questions[Q.idx], i);
+    renderQuiz(); return;
+  }
   if (act === 'unplace') { if (!Q || Q.checked) return; Q.placed = Q.placed.filter((i) => i !== Number(el.dataset.i)); renderQuiz(); return; }
   if (act === 'check') { doCheck(); return; }
   if (act === 'review-mistakes') {
@@ -861,7 +911,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { closeQuiz(); return; }
   const q = Q.questions[Q.idx];
   if (!Q.checked && /^[1-4]$/.test(e.key) && q.type !== 'sentence') {
-    const i = Number(e.key) - 1; if (i < q.options.length) { Q.selected = i; renderQuiz(); } return;
+    const i = Number(e.key) - 1; if (i < q.options.length) { Q.selected = i; speakOption(q, i); renderQuiz(); } return;
   }
   if (e.key === 'Enter') {
     e.preventDefault();
