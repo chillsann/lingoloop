@@ -1,5 +1,5 @@
 /* Lingoloop Service Worker — 离线可用，不联网、不追踪 */
-const CACHE = 'lingoloop-v9';
+const CACHE = 'lingoloop-v10';
 /* 音频单独放一个常驻缓存：升级版本时只清旧版页面缓存，
    用户已经听过的离线发音不会因为发版而丢失。 */
 const AUDIO_CACHE = 'lingoloop-audio';
@@ -11,7 +11,7 @@ const CORE = [
 ];
 
 /* 只预缓存 10 个核心文件，保证 install 秒级完成、新版本立刻接管。
-   不在安装时批量预缓存 624 个发音 mp3：微信 / 移动网络下几百个并发请求会
+   不在安装时批量预缓存 2000 多个发音 mp3：微信 / 移动网络下几百个并发请求会
    长时间占满连接、拖慢首屏，甚至让新 SW 迟迟装不上，用户会一直读到旧缓存。
    音频改为「按需缓存」——点过一次就写入缓存，之后离线照常播放。 */
 self.addEventListener('install', (e) => {

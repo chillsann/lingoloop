@@ -3,6 +3,8 @@
  * 纯原生 JS，无构建、无依赖；数据仅存浏览器 localStorage。 */
 
 const { LANGS, BUILTIN_UNITS, flattenWords } = window.LINGO;
+const GQUIZ = window.LINGO.GRAMMAR_QUIZ || [];
+const CONJ_PERSONS = window.LINGO.CONJ_PERSONS || ['yo 我','tú 你','él/ella 他·她','nosotros 我们','vosotros 你们','ellos 他们'];
 
 const KEY = 'lingoloop.v2', OLD_KEY = 'lingoloop.v1';
 const HEARTS_MAX = 5, HEART_MS = 20 * 60 * 1000;
@@ -11,6 +13,22 @@ const ROUTES = [
   { id: 'words', ico: '📖', label: '词库' }, { id: 'stats', ico: '📈', label: '统计' },
   { id: 'settings', ico: '⚙️', label: '设置' }
 ];
+/* 课程骨架对标多邻国英文版 8 个 Section 的 CEFR 分段：
+   Section 1–3 = A1、Section 4 = A2、Section 5–6 = B1、Section 7–8 = B2。
+   每门语言 15 单元按序号归入前 4 个已开放 Section，B1/B2 如实标规划中。
+   Section 9（个性化练习）与 10（每日复习）是复习巩固模块，不计入正式进度。 */
+const SECTIONS = [
+  { no: 1, cefr: 'A1', name: '基础问候', from: 1, to: 3, desc: '打招呼、日常用语、出行与购物' },
+  { no: 2, cefr: 'A1', name: '生活基础', from: 4, to: 6, desc: '数字、自我介绍、家庭与人物' },
+  { no: 3, cefr: 'A1', name: '描述与表达', from: 7, to: 9, desc: '饮食、时间日期、颜色与形容' },
+  { no: 4, cefr: 'A2', name: '日常进阶', from: 10, to: 15, desc: '天气、问路、健康、工作、动词与时态' },
+  { no: 5, cefr: 'B1', name: '独立表达', planned: true },
+  { no: 6, cefr: 'B1', name: '观点与叙述', planned: true },
+  { no: 7, cefr: 'B2', name: '复杂语境', planned: true },
+  { no: 8, cefr: 'B2', name: '流利运用', planned: true }
+];
+const unitNo = (u) => Number(String(u.id || '').match(/-u(\d+)$/)?.[1] || 0);
+const sectionOf = (u) => SECTIONS.find((s) => !s.planned && unitNo(u) >= s.from && unitNo(u) <= s.to) || SECTIONS[0];
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
@@ -35,7 +53,7 @@ function defaultState() {
     hearts: HEARTS_MAX, heartAt: Date.now(), streak: 0, lastActive: '',
     dailyGoal: 20, completed: [], stars: {}, wordStats: {}, mistakes: [],
     dailyXp: {}, customUnits: [], sound: true, tts: true, rate: 0.9,
-    optSpeak: true, checkSpeak: true
+    optSpeak: true, checkSpeak: true, lastDaily: ''
   };
 }
 let S = load();
@@ -243,7 +261,11 @@ function speak(text, langId, opts = {}) {
   const lang = langOf(langId || S.lang);
   if (!S.tts || !lang.ttsOk || !text) return;
   const hasFile = !!(id && AUDIO_IDS.has(id));
+  /* 方言真人音档语言（闽南话）只播官方原档：没有内置 mp3 的词一律静默，
+     绝不降级到系统 TTS 或在线词典——那会把方言本字按普通话念出来，是错误发音。 */
+  if (lang.audioPartial && !hasFile) return;
   const fallback = () => {
+    if (lang.audioPartial) return;
     if (auto) { toast('🔊 点一下喇叭就能听发音'); return; }
     /* 有内置音频却没播成时，「点选项/点词块」这类静默调用不再降级到在线音频，
        避免连点时旧请求的失败回调把当前选项打断、串出别的词。 */
@@ -335,12 +357,32 @@ function makeQ(word, type, pool, lang) {
   if (t === 'word2zh') { q.options = shuffle([word.zh, ...distractors(word, pool, 'zh')]); q.answer = word.zh; }
   else if (t === 'zh2word') { q.options = shuffle([word.word, ...distractors(word, pool, 'word')]); q.answer = word.word; }
   else if (t === 'listen') {
-    if (lang.ttsOk) { q.options = shuffle([word.word, ...distractors(word, pool, 'word')]); q.answer = word.word; q.kindLabel = '听发音，选单词'; }
+    /* 方言真人音档语言：只有该词确实有官方 mp3 才出听音题，
+       没有录音的词改用台罗「选正确读音」，不会出一道没声音的题。 */
+    const canAudio = lang.ttsOk && (!lang.audioPartial || AUDIO_IDS.has(word.id));
+    if (canAudio) { q.options = shuffle([word.word, ...distractors(word, pool, 'word')]); q.answer = word.word; q.kindLabel = '听发音，选单词'; }
     else { q.options = shuffle([word.pron, ...distractors(word, pool, 'pron')]); q.answer = word.pron; q.kindLabel = '选出正确读音'; q.noAudio = true; }
   }
   else if (t === 'spell') { q.options = shuffle([word.word, ...nearMisses(word.word, lang.hanzi)]); q.answer = word.word; }
   else if (t === 'sentence') { const tokens = word.ex.split(/\s+/).filter(Boolean); q.chops = shuffle(tokens); q.answer = tokens.join(' '); }
   return q;
+}
+/** 语法小测：把 GRAMMAR_QUIZ 的一条转成选择题，选项与音频 id 同步打乱。
+    每个选项都配了内置 mp3（es-g{题号}-{选项号}），点选项即可发音，微信里也能播。 */
+function makeGrammarQ(g, idx) {
+  const pairs = shuffle(g.options.map((t, i) => ({ t, a: `es-g${idx}-${i}` })));
+  return {
+    type: 'grammar', id: uid(), langId: 'es',
+    kindLabel: '语法小测 · 选出正确表达',
+    prompt: g.prompt, options: pairs.map((p) => p.t), aids: pairs.map((p) => p.a),
+    answer: g.answer, note: g.note,
+    word: { id: `es-g${idx}`, word: '', zh: '', pron: '', ex: '', exZh: '' }
+  };
+}
+function grammarQsOf(unitId) {
+  const out = [];
+  GQUIZ.forEach((g, i) => { if (g.unitId === unitId) out.push(makeGrammarQ(g, i + 1)); });
+  return out;
 }
 function buildQuiz(lessonWords, langId, opts = {}) {
   const lang = langOf(langId), all = wordsOfLang(langId);
@@ -379,6 +421,21 @@ function startChallenge(lid) {
   if (!list.length) { toast('这门语言还没有词库'); return; }
   startQuiz(null, true, list, lid, '无限练习 · 随机组卷');
 }
+/* 每日复习（对标英文版 Section 10 Daily Refresh）：错词 → 低掌握度 → 随机巩固。
+   不消耗红心、不占正式课程进度；每天首次完成给 15 XP 奖励。 */
+function startDaily(lid) {
+  const pool = wordsOfLang(lid);
+  if (!pool.length) { toast('这门语言还没有词库'); return; }
+  const wrong = pool.filter((w) => S.mistakes.includes(w.id));
+  const weak = pool.filter((w) => !wrong.includes(w) && (S.wordStats[w.id]?.lv || 0) <= 1);
+  const rest = pool.filter((w) => !wrong.includes(w) && !weak.includes(w));
+  const list = [...shuffle(wrong).slice(0, 5), ...shuffle(weak).slice(0, 5), ...shuffle(rest).slice(0, 4)].slice(0, 12);
+  const first = S.lastDaily !== dateKey();
+  startQuiz(null, true, list, lid, first ? '每日复习 · 今日首次奖励 +15 XP' : '每日复习 · 巩固练习');
+  if (Q) Q.daily = true;
+  if (Q) Q.dailyFirst = first;
+  if (first) { S.lastDaily = dateKey(); save(); }
+}
 function startQuiz(lessonId, review = false, customWords = null, langId = null, titleOverride = null) {
   const lid = langId || S.lang;
   if (S.hearts <= 0 && !review) {
@@ -389,8 +446,19 @@ function startQuiz(lessonId, review = false, customWords = null, langId = null, 
   if (customWords) { ws = customWords; title = titleOverride || '错词专项复习'; }
   else { const l = lessonById(lessonId); if (!l) return; ws = l.words; title = l.title; }
   if (!ws || !ws.length) { toast('这节课还没有词'); return; }
+  let questions = buildQuiz(ws, lid, { count: customWords ? Math.min(10, ws.length * 2) : undefined });
+  /* 综合练习课（-L3）插入本单元的语法小测，穿插在词汇题之间而不是全堆在最后 */
+  const lesson = lessonId ? lessonById(lessonId) : null;
+  if (lesson && lesson.no === 3 && !customWords) {
+    const gqs = grammarQsOf(lesson.unitId);
+    if (gqs.length) {
+      const mixed = [];
+      gqs.forEach((g, i) => { mixed.push(questions[i] || g); mixed.push(g); });
+      questions = [...mixed, ...questions.slice(gqs.length)];
+    }
+  }
   Q = {
-    questions: buildQuiz(ws, lid, { count: customWords ? Math.min(10, ws.length * 2) : undefined }),
+    questions,
     idx: 0, correct: 0, wrong: 0, mistakes: [],
     hearts: review ? HEARTS_MAX : S.hearts, xp: 0,
     lessonId, review, title, langId: lid, challenge: !!titleOverride,
@@ -428,7 +496,8 @@ function speakOption(q, i) {
   if (!lang.ttsOk) return;
   if (q.type === 'listen' && q.noAudio) return;   // 方言「选正确读音」题本来就没有语音
   let text = q.options[i], id = null;
-  if (q.type === 'word2zh') { text = q.word.word; id = q.word.id; }
+  if (q.type === 'grammar') id = q.aids[i];        // 语法题每个选项都有专属 mp3
+  else if (q.type === 'word2zh') { text = q.word.word; id = q.word.id; }
   else id = wordAudioId(text, Q.langId);
   speak(text, Q.langId, { id, silent: true });
 }
@@ -446,7 +515,7 @@ function renderQuiz() {
   if (Q.out) { renderResult(); return; }
   const q = Q.questions[Q.idx], w = q.word, lang = langOf(Q.langId);
   const pct = Math.round((Q.idx / Q.questions.length) * 100);
-  const say = (txt, label) => lang.ttsOk
+  const say = (txt, label) => (lang.ttsOk && (!lang.audioPartial || AUDIO_IDS.has(w.id)))
     ? `<button class="btn btn-ghost btn-sm" data-act="speak" data-text="${esc(txt)}" data-lang="${esc(Q.langId)}" data-id="${esc(w.id)}">🔊 ${label}</button>` : '';
   let body = '';
   if (q.type === 'sentence') {
@@ -459,32 +528,36 @@ function renderQuiz() {
   } else {
     const isListen = q.type === 'listen' && !q.noAudio;
     const isSpell = q.type === 'spell', isPron = q.type === 'listen' && q.noAudio;
+    const isGram = q.type === 'grammar';
     let head;
-    if (isListen) head = `<button class="speak-btn" data-act="speak" data-text="${esc(w.word)}" data-lang="${esc(Q.langId)}" data-id="${esc(w.id)}" aria-label="播放发音">🔊</button>
+    if (isGram) head = `<div class="q-word q-word--gram">${esc(q.prompt)}</div><div class="q-ipa">从四个${esc(lang.name)}说法里选出正确的一句 · 点选项会发音</div>`;
+    else if (isListen) head = `<button class="speak-btn" data-act="speak" data-text="${esc(w.word)}" data-lang="${esc(Q.langId)}" data-id="${esc(w.id)}" aria-label="播放发音">🔊</button>
         <button class="btn btn-ghost btn-sm" data-act="speak-slow" data-text="${esc(w.word)}" data-lang="${esc(Q.langId)}" data-id="${esc(w.id)}">🐢 慢速再听一次</button>`;
     else if (isPron) head = `<div class="q-word">${dv(w.word)}</div><div class="q-ipa">这个词怎么念？参照近似注音选一选</div>`;
     else if (isSpell) head = `<div class="q-word">${esc(w.zh)}</div><div class="q-ipa">选出正确的${esc(lang.name)}写法</div>`;
     else if (q.type === 'word2zh') head = `<div class="q-word">${dv(w.word)}</div><div class="q-ipa">${lang.ttsOk ? esc(w.pron || '') : '近似读音 · ' + esc(w.pron || '')}</div>${say(w.word, '听发音')}`;
     else head = `<div class="q-word">${esc(w.zh)}</div><div class="q-ipa">选出对应的${esc(lang.name)}说法</div>`;
-    const titles = { word2zh: '这是什么意思？', zh2word: `「${esc(w.zh)}」怎么说？`, listen: isPron ? '选出正确读音' : '你听到了什么？', spell: `「${esc(w.zh)}」怎么写？` };
-    const hint = isListen ? '点击喇叭播放，可以反复听；点选项也会读一遍' : isPron ? `${esc(lang.name)}暂无语音合成，这里用近似注音练习` : '点选项就会发音，选好后按「检查」，也可以按键盘 1–4';
+    const titles = { word2zh: '这是什么意思？', zh2word: `「${esc(w.zh)}」怎么说？`, listen: isPron ? '选出正确读音' : '你听到了什么？', spell: `「${esc(w.zh)}」怎么写？`, grammar: '语法小测' };
+    const hint = isGram ? '读懂提示再选，答完会给出语法讲解' : isListen ? '点击喇叭播放，可以反复听；点选项也会读一遍' : isPron ? `${esc(lang.name)}暂无语音合成，这里用近似注音练习` : '点选项就会发音，选好后按「检查」，也可以按键盘 1–4';
     body = `<div class="q-kind ${isListen ? 'listen' : ''}">${qKindLabel(q)} · ${esc(lang.name)}</div>
       <h2 class="q-title">${titles[q.type] || '选一选'}</h2><p class="q-hint">${hint}</p>
       <div style="margin-bottom:26px">${head}</div>
-      <div class="options">${q.options.map((o, i) => {
+      <div class="options ${isGram ? 'options--gram' : ''}">${q.options.map((o, i) => {
         let cls = '';
         if (Q.checked) { if (o === q.answer) cls = 'correct'; else if (i === Q.selected) cls = 'wrong'; }
         else if (i === Q.selected) cls = 'selected';
         return `<button class="option ${cls}" data-act="select" data-i="${i}" ${Q.checked ? 'disabled' : ''}><span class="key">${i + 1}</span><span dir="auto">${esc(o)}</span></button>`;
       }).join('')}</div>
-      ${!Q.checked && !isListen && !isPron && w.ex ? `<div class="q-example">${dv(w.ex || '')}<i>${esc(w.exZh || '')}</i>
+      ${!Q.checked && !isListen && !isPron && !isGram && w.ex ? `<div class="q-example">${dv(w.ex || '')}<i>${esc(w.exZh || '')}</i>
         ${lang.ttsOk && AUDIO_IDS.has(w.id + '-ex') ? `<button class="ex-speak" data-act="speak" data-text="${esc(w.ex)}" data-lang="${esc(Q.langId)}" data-id="${esc(w.id)}-ex" aria-label="朗读整句">🔊 听整句</button>` : ''}</div>` : ''}`;
   }
   const exBtn = lang.ttsOk && w.ex && AUDIO_IDS.has(w.id + '-ex')
     ? `<button class="ex-speak ex-speak--fb" data-act="speak" data-text="${esc(w.ex)}" data-lang="${esc(Q.langId)}" data-id="${esc(w.id)}-ex" aria-label="朗读整句例句">🔊 听整句</button>` : '';
+  const gramNote = q.type === 'grammar' && Q.checked
+    ? `<div class="gram-note">📖 ${esc(q.note)}</div>` : '';
   const fb = Q.checked
     ? `<div class="feedback ${Q.lastOk ? 'ok' : 'no'}"><b><span class="feedback-ico">${Q.lastOk ? '✓' : '✕'}</span>${Q.lastOk ? pick(['很好！', '答对了', '漂亮', '就是这个']) : '再记一下'}</b>
-        <small>${Q.lastOk ? `+${Q.lastXp} XP` : `正确答案：${esc(q.answer)}`}</small>${exBtn}</div>`
+        <small>${Q.lastOk ? `+${Q.lastXp} XP` : `正确答案：${esc(q.answer)}`}</small>${q.type === 'grammar' ? '' : exBtn}</div>${gramNote}`
     : `<div class="feedback"><b style="color:var(--ink-3);font-size:14px">第 ${Q.idx + 1} / ${Q.questions.length} 题 · ${esc(lang.name)}</b><small>答错会扣一颗红心，别紧张</small></div>`;
   const canCheck = q.type === 'sentence' ? Q.placed.length === q.chops.length : Q.selected !== null;
   const btnLabel = Q.checked ? (Q.idx === Q.questions.length - 1 ? '完成' : '继续') : '检查';
@@ -509,24 +582,35 @@ function doCheck() {
       : q.options[Q.selected] === q.answer;
     Q.lastOk = ok; Q.lastXp = ok ? 10 : 0; Q.checked = true;
     /* 按「检查」后统一朗读完整例句：答对跟读一遍，答错更该听一遍正确说法。
-       极少数没有整句音频的词回退到单词音频。 */
+       语法题朗读「正确选项」那句西语；极少数没有整句音频的词回退到单词音频。 */
     if (S.checkSpeak) {
-      const exId = q.word.id + '-ex';
-      if (q.word.ex && AUDIO_IDS.has(exId)) speak(q.word.ex, Q.langId, { id: exId });
-      else speak(q.word.word, Q.langId, { id: q.word.id });
+      if (q.type === 'grammar') {
+        const ri = q.options.findIndex((o) => o === q.answer);
+        speak(q.answer, Q.langId, { id: q.aids[ri] });
+      } else {
+        const exId = q.word.id + '-ex';
+        if (q.word.ex && AUDIO_IDS.has(exId)) speak(q.word.ex, Q.langId, { id: exId });
+        else speak(q.word.word, Q.langId, { id: q.word.id });
+      }
     }
+    /* 语法题用的是虚拟词条 id，不写进词掌握度 / 错词本，避免污染统计；仍照常记分与扣红心。 */
+    const track = q.type !== 'grammar';
     if (ok) {
       Q.correct++; Q.xp += Q.lastXp; beep(true);
-      const st = S.wordStats[q.word.id] || { c: 0, w: 0, lv: 0 };
-      st.c++; st.lv = clamp((st.lv || 0) + 1, 0, 5); S.wordStats[q.word.id] = st;
-      if (Q.review) S.mistakes = S.mistakes.filter((id) => id !== q.word.id);
+      if (track) {
+        const st = S.wordStats[q.word.id] || { c: 0, w: 0, lv: 0 };
+        st.c++; st.lv = clamp((st.lv || 0) + 1, 0, 5); S.wordStats[q.word.id] = st;
+        if (Q.review) S.mistakes = S.mistakes.filter((id) => id !== q.word.id);
+      }
     } else {
       Q.wrong++; beep(false);
       if (!Q.review) { Q.hearts = Math.max(0, Q.hearts - 1); S.hearts = Q.hearts; S.heartAt = Date.now(); }
-      if (!Q.mistakes.includes(q.word.id)) Q.mistakes.push(q.word.id);
-      if (!S.mistakes.includes(q.word.id)) S.mistakes.push(q.word.id);
-      const st = S.wordStats[q.word.id] || { c: 0, w: 0, lv: 0 };
-      st.w++; st.lv = clamp((st.lv || 0) - 1, 0, 5); S.wordStats[q.word.id] = st;
+      if (track) {
+        if (!Q.mistakes.includes(q.word.id)) Q.mistakes.push(q.word.id);
+        if (!S.mistakes.includes(q.word.id)) S.mistakes.push(q.word.id);
+        const st = S.wordStats[q.word.id] || { c: 0, w: 0, lv: 0 };
+        st.w++; st.lv = clamp((st.lv || 0) - 1, 0, 5); S.wordStats[q.word.id] = st;
+      }
     }
     save(); renderQuiz(); return;
   }
@@ -536,7 +620,9 @@ function doCheck() {
 }
 function finishQuiz(ranOut) {
   Q.out = true;
-  const bonus = Q.wrong === 0 && Q.correct > 0 ? 15 : 0, gained = Q.xp + bonus;
+  const bonus = Q.wrong === 0 && Q.correct > 0 ? 15 : 0;
+  const dailyBonus = Q.daily && Q.dailyFirst && Q.correct > 0 ? 15 : 0;   // 每日复习今日首次奖励
+  const gained = Q.xp + bonus + dailyBonus;
   const firstTime = Q.lessonId && !Q.review && !S.completed.includes(Q.lessonId) && !ranOut;
   const repeat = Q.lessonId && !Q.review && S.completed.includes(Q.lessonId);
   const awarded = Q.review ? Math.round(gained * 0.5) : (repeat ? Math.round(gained * 0.5) : gained);
@@ -560,6 +646,7 @@ function renderResult() {
   const emoji = f.ranOut ? '💤' : f.acc >= 90 ? '🎉' : f.acc >= 60 ? '👍' : '🌱';
   const heading = f.ranOut ? '红心用完啦' : f.acc >= 90 ? '太棒了！' : f.acc >= 60 ? '完成一节课' : '继续加油';
   const sub = f.ranOut ? '休息一下，红心会自动恢复；或者去「复习」练错词，不消耗红心。'
+    : Q.daily ? (Q.dailyFirst ? '每日复习完成，今日首次奖励已到账。' : '每日复习不消耗红心，也不占课程进度。')
     : Q.challenge ? '无限练习不消耗红心、也不占课程进度，想刷多少组都行。'
     : Q.review ? '错词又少了一批，掌握度正在上升。'
     : f.firstTime ? `${lang.name}的新课程已解锁，连胜继续保持。` : '复习旧课也能巩固记忆，经验值按一半计算。';
@@ -634,43 +721,59 @@ function viewLearn() {
     <div class="tile-grid">${tiles.map((t) => `<div class="tile"><div class="tile-ico">${t.ico}</div><b>${t.v}</b><span>${t.l}</span></div>`).join('')}</div>
     ${langPicker()}
     <div class="card roadmap-card">
-      <h3 class="card-title">🗺️ ${esc(lang.name)}课程路线</h3>
+      <h3 class="card-title">🗺️ ${esc(lang.name)}课程路线 · CEFR 分级</h3>
       <div class="roadmap-steps">
-        <span class="rm-step on">A1 基础</span>
-        <span class="rm-step ${levels.includes('A2') ? 'on' : 'todo'}">A2 进阶${levels.includes('A2') ? '' : ' · 规划中'}</span>
-        <span class="rm-step todo">B1 · 规划中</span><span class="rm-step todo">B2 · 规划中</span>
+        ${SECTIONS.map((s) => `<span class="rm-step ${s.planned ? 'todo' : 'on'}">S${s.no} ${esc(s.cefr)}${s.planned ? ' 规划中' : ''}</span>`).join('')}
       </div>
-      <p class="card-sub">当前开放 <b>${langUnits.length}</b> 个单元 / <b>${wordsOfLang(lang.id).length}</b> 个词 / <b>${lp.total}</b> 课，已完成 ${lp.done} 课。每单元 3 课（基础词汇 → 进阶词汇 → 综合练习），做完自动解锁下一单元。B1/B2 需要成体系的语法、长文听力与写作训练，目前仍在规划。</p>
+      <p class="card-sub">对标英文版 8 个 Section 的分级骨架：<b>Section 1–3 = A1、Section 4 = A2、Section 5–6 = B1、Section 7–8 = B2</b>。当前开放前 4 个 Section 共 <b>${langUnits.length}</b> 个单元 / <b>${wordsOfLang(lang.id).length}</b> 个词 / <b>${lp.total}</b> 课，已完成 ${lp.done} 课。每单元 3 课（基础词汇 → 进阶词汇 → 综合练习，西语综合练习含语法小测），做完自动解锁下一单元。B1/B2 需要成体系的语法、长文听力与写作训练，如实标注规划中。</p>
     </div>
-    <div class="section-label">${esc(lang.name)}课程地图 · ${langUnits.length} 个单元 / ${wordsOfLang(lang.id).length} 个词 / ${lp.total} 课${levels.length > 1 ? `（${levelStat}）` : ''}</div>
-    ${langUnits.map((u, ui) => {
-      const p = unitProgress(u);
-      return `<section class="unit"><div class="unit-head" style="background:${esc(lang.color)}">
-        <div class="unit-ico">${esc(u.icon || '📘')}</div>
-        <div class="unit-head-text"><h3>单元 ${ui + 1} · ${esc(u.title)} <span class="lv-badge">${esc(u.level || 'A1')}</span></h3><p>${esc(u.subtitle || '')}</p></div>
-        <div class="unit-progress">${p.done}/${p.total} 课</div></div>
-        <div class="unit-body">
-          ${u.grammar ? `<p class="unit-grammar">📖 ${esc(u.grammar)}</p>` : ''}
-          <p class="unit-note">${esc((u.words[0] || {}).word || '')}、${esc((u.words[1] || {}).word || '')}… 共 ${u.words.length} 个词，学完解锁下一单元。</p>
-          <div class="path"><div class="path-dots">• • •</div>
-          ${lessonsOf(u).map((l, li) => {
-            const unlocked = isUnlocked(l.id), done = S.completed.includes(l.id), stars = S.stars[l.id] || 0;
-            return `<div class="path-row" style="transform:translateX(${li === 1 ? '38px' : li === 2 ? '-26px' : '0'})">
-              <div class="lesson-wrap"><button class="lesson-node ${unlocked ? '' : 'locked'} ${done ? 'done' : ''}"
-                data-act="${unlocked ? 'lesson' : 'locked'}" data-id="${esc(l.id)}" aria-label="${esc(l.title)}">
-                ${unlocked ? (done ? '<span class="check">✓</span>' : (li === 2 ? '⭐' : '📖')) : '🔒'}</button>
-                <div class="lesson-label ${unlocked ? '' : 'locked'}">${esc(l.title)}${done ? `<div class="lesson-stars">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</div>` : ''}</div></div></div>`;
-          }).join('')}<div class="path-dots">• • •</div></div></div></section>`;
+    <div class="card refresh-card">
+      <h3 class="card-title">🔁 复习巩固模块 <span class="pill pill-gray">不计入正式进度</span></h3>
+      <p class="card-sub">对标英文版 Section 9（个性化练习）与 Section 10（每日刷新）：不消耗红心、不占课程进度，随时可练。</p>
+      <div class="btn-row" style="margin:0">
+        <button class="btn btn-primary" data-act="daily">📅 每日复习${S.lastDaily === dateKey() ? '（今日已完成）' : ' · 今日首次 +15 XP'}</button>
+        <button class="btn btn-ghost" data-act="challenge">♾️ 无限练习</button></div>
+    </div>
+    <div class="section-label">${esc(lang.name)}课程地图 · ${SECTIONS.filter((s) => !s.planned).length} 个 Section / ${langUnits.length} 个单元 / ${wordsOfLang(lang.id).length} 个词 / ${lp.total} 课${levels.length > 1 ? `（${levelStat}）` : ''}</div>
+    ${SECTIONS.map((sec) => {
+      const us = sec.planned ? [] : langUnits.filter((u) => sectionOf(u).no === sec.no);
+      if (sec.planned) return `<div class="sec-band sec-band--todo"><span class="sec-tag">Section ${sec.no}</span><b>${esc(sec.cefr)} · ${esc(sec.name)}</b><span class="sec-plan">规划中 · 需要语法体系、长文阅读与听说训练</span></div>`;
+      const done = us.reduce((n, u) => n + unitProgress(u).done, 0);
+      const total = us.reduce((n, u) => n + unitProgress(u).total, 0);
+      return `<div class="sec-band"><span class="sec-tag">Section ${sec.no}</span><b>${esc(sec.cefr)} · ${esc(sec.name)}</b><span class="sec-desc">${esc(sec.desc)}</span><span class="sec-prog">${done}/${total} 课</span></div>` +
+        us.map((u) => {
+          const p = unitProgress(u);
+          return `<section class="unit"><div class="unit-head" style="background:${esc(lang.color)}">
+            <div class="unit-ico">${esc(u.icon || '📘')}</div>
+            <div class="unit-head-text"><h3>单元 ${unitNo(u)} · ${esc(u.title)} <span class="lv-badge">${esc(u.level || sec.cefr)}</span></h3><p>${esc(u.subtitle || '')}</p></div>
+            <div class="unit-progress">${p.done}/${p.total} 课</div></div>
+            <div class="unit-body">
+              ${u.grammar ? `<p class="unit-grammar">📖 ${esc(u.grammar)}</p>` : ''}
+              <p class="unit-note">${esc((u.words[0] || {}).word || '')}、${esc((u.words[1] || {}).word || '')}… 共 ${u.words.length} 个词${lessonsOf(u).some((l) => l.no === 3) && grammarQsOf(u.id).length ? ' · 综合练习含语法小测' : ''}，学完解锁下一单元。</p>
+              <div class="path"><div class="path-dots">• • •</div>
+              ${lessonsOf(u).map((l, li) => {
+                const unlocked = isUnlocked(l.id), dn = S.completed.includes(l.id), stars = S.stars[l.id] || 0;
+                return `<div class="path-row" style="transform:translateX(${li === 1 ? '38px' : li === 2 ? '-26px' : '0'})">
+                  <div class="lesson-wrap"><button class="lesson-node ${unlocked ? '' : 'locked'} ${dn ? 'done' : ''}"
+                    data-act="${unlocked ? 'lesson' : 'locked'}" data-id="${esc(l.id)}" aria-label="${esc(l.title)}">
+                    ${unlocked ? (dn ? '<span class="check">✓</span>' : (li === 2 ? '⭐' : '📖')) : '🔒'}</button>
+                    <div class="lesson-label ${unlocked ? '' : 'locked'}">${esc(l.title)}${dn ? `<div class="lesson-stars">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</div>` : ''}</div></div></div>`;
+              }).join('')}<div class="path-dots">• • •</div></div></div></section>`;
+        }).join('');
     }).join('')}
     <div class="card todo-card">
-      <h3 class="card-title">🚧 后面的课程还在修</h3>
-      <p class="card-sub">A1 / A2 打的是词汇和常用句型；要真正走到 B1、B2，还得加语法体系、动词变位表、长文阅读、听写与口语练习。这些会按单元逐步补上，已完成的进度不会丢。现在想多练，点「♾️ 无限练习」——从学过的词随机组卷、不限次数，不消耗红心。</p>
+      <h3 class="card-title">🚧 关于 B1 / B2</h3>
+      <p class="card-sub">目前 A1 / A2 打的是词汇、常用句型和逐单元语法点，西语另配了语法小测与动词变位表。要真正走到 B1、B2，还得补长文阅读、听写、口语与写作反馈——那是内容体系而不是前端功能，所以这里如实标注规划中，不假装做到。已完成的进度不会丢。</p>
     </div>`;
 }
 function viewReview() {
   const list = S.mistakes.map(wordById).filter(Boolean);
   const weak = words().filter((w) => (S.wordStats[w.id]?.lv || 0) <= 1 && !S.mistakes.includes(w.id)).slice(0, 20);
   return `<div class="page-head"><h1 class="page-title">复习与错词本</h1><p class="page-desc">所有语言一起复习，不消耗红心，答对后错词会自动移出列表。</p></div>
+    <div class="card refresh-card"><h3 class="card-title">📅 每日复习 <span class="pill pill-gray">Section 10</span></h3>
+      <p class="card-sub">从当前语言的错词、低掌握度词与随机巩固词里组一组 12 题，不耗红心、不占进度。今日首次完成奖励 15 XP。</p>
+      <div class="btn-row" style="margin:0"><button class="btn btn-primary" data-act="daily">开始每日复习${S.lastDaily === dateKey() ? '（今日已完成）' : ''}</button>
+        <button class="btn btn-ghost" data-act="challenge">♾️ 无限练习</button></div></div>
     <div class="card"><h3 class="card-title">📌 我的错词 <span class="pill ${list.length ? 'pill-red' : 'pill-green'}">${list.length} 个</span></h3>
       <p class="card-sub">答错的词会自动收进这里，答对一次即可移除。</p>
       ${list.length ? `<div class="btn-row" style="margin:0 0 18px">
@@ -686,34 +789,46 @@ function viewReview() {
 }
 function wordRow(w) {
   const st = S.wordStats[w.id] || { lv: 0, c: 0, w: 0 }, lang = langOf(w.langId);
+  const wordAudio = lang.ttsOk && (!lang.audioPartial || AUDIO_IDS.has(w.id));
   return `<div class="word-row"><div class="word-main">
       <div><span class="word-en" dir="auto">${esc(w.word)}</span><span class="word-ipa">${esc(w.pron || '')}</span></div>
       <div class="word-zh">${esc(w.zh)} <span class="pill pill-gray" style="font-size:10px;padding:1px 7px">${esc(lang.name)}</span></div>
       ${w.ex ? `<div class="word-ex" dir="auto">${esc(w.ex)}
-        ${lang.ttsOk && AUDIO_IDS.has(w.id + '-ex') ? `<button class="ex-speak" data-act="speak" data-text="${esc(w.ex)}" data-lang="${esc(w.langId)}" data-id="${esc(w.id)}-ex" aria-label="朗读整句">🔊 听整句</button>` : ''}</div>` : ''}</div>
+        ${AUDIO_IDS.has(w.id + '-ex') ? `<button class="ex-speak" data-act="speak" data-text="${esc(w.ex)}" data-lang="${esc(w.langId)}" data-id="${esc(w.id)}-ex" aria-label="朗读整句">🔊 听整句</button>` : ''}</div>` : ''}</div>
     <div class="word-meta">
-      ${lang.ttsOk ? `<button class="mini-speak" data-act="speak" data-text="${esc(w.word)}" data-lang="${esc(w.langId)}" data-id="${esc(w.id)}" aria-label="朗读单词">🔊</button>` : '<span style="font-size:11px;color:var(--ink-3)">无语音</span>'}
+      ${wordAudio ? `<button class="mini-speak" data-act="speak" data-text="${esc(w.word)}" data-lang="${esc(w.langId)}" data-id="${esc(w.id)}" aria-label="朗读单词">🔊</button>` : '<span style="font-size:11px;color:var(--ink-3)">无录音</span>'}
       <div class="mastery" title="掌握度 ${st.lv}/5">${[1,2,3,4,5].map((i) => `<i class="${i <= (st.lv || 0) ? 'on' : ''}"></i>`).join('')}</div>
     </div></div>`;
 }
 function viewWords() {
   const lang = curLang(), all = wordsOfLang(lang.id);
+  const conjWords = all.filter((w) => Array.isArray(w.conj) && w.conj.length === 6);
   const rows = all.map((w) => `<tr data-id="${esc(w.id)}">
-      <td style="padding:11px 10px;border-top:1px solid var(--line)"><b dir="auto">${esc(w.word)}</b><div style="font-size:11.5px;color:var(--ink-3)">${esc(w.pron || '')}</div>
+      <td style="padding:11px 10px;border-top:1px solid var(--line)"><b dir="auto">${esc(w.word)}</b>${Array.isArray(w.conj) ? ' <span class="conj-dot" title="有动词变位表">变位</span>' : ''}<div style="font-size:11.5px;color:var(--ink-3)">${esc(w.pron || '')}</div>
         ${w.ex ? `<div class="word-ex" dir="auto">${esc(w.ex)}</div>` : ''}</td>
       <td style="padding:11px 10px;border-top:1px solid var(--line)">${esc(w.zh)}</td>
       <td style="padding:11px 10px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-2)">${esc(w.unitTitle)}</td>
-      <td style="padding:11px 10px;border-top:1px solid var(--line);text-align:right;white-space:nowrap">${lang.ttsOk ? `<button class="mini-speak" data-act="speak" data-text="${esc(w.word)}" data-lang="${esc(lang.id)}" data-id="${esc(w.id)}" aria-label="朗读单词">🔊</button>${AUDIO_IDS.has(w.id + '-ex') ? `<button class="ex-speak" data-act="speak" data-text="${esc(w.ex)}" data-lang="${esc(lang.id)}" data-id="${esc(w.id)}-ex" aria-label="朗读整句">整句</button>` : ''}` : ''}</td></tr>`).join('');
+      <td style="padding:11px 10px;border-top:1px solid var(--line);text-align:right;white-space:nowrap">${(lang.ttsOk && (!lang.audioPartial || AUDIO_IDS.has(w.id))) ? `<button class="mini-speak" data-act="speak" data-text="${esc(w.word)}" data-lang="${esc(lang.id)}" data-id="${esc(w.id)}" aria-label="朗读单词">🔊</button>${AUDIO_IDS.has(w.id + '-ex') ? `<button class="ex-speak" data-act="speak" data-text="${esc(w.ex)}" data-lang="${esc(lang.id)}" data-id="${esc(w.id)}-ex" aria-label="朗读整句">整句</button>` : ''}` : ''}</td></tr>`).join('');
+  const conjCard = conjWords.length ? `<div class="card conj-card">
+      <h3 class="card-title">📐 动词变位表 <span class="pill pill-gray">${conjWords.length} 个动词</span></h3>
+      <p class="card-sub">${esc(lang.name)}常用动词的六个人称形式，点开可看；现在时为主，<b>fui / compré</b> 是简单过去时。变位表是语法参考，不参与出题。</p>
+      <div class="conj-grid">${conjWords.map((w) => `<details class="conj-item"><summary><b dir="auto">${esc(w.word)}</b><span>${esc(w.zh)}</span></summary>
+        <table class="conj-table"><tbody>${w.conj.map((f, i) => `<tr><th>${esc(CONJ_PERSONS[i] || '')}</th><td dir="auto">${esc(f)}</td></tr>`).join('')}</tbody></table>
+        ${lang.ttsOk && AUDIO_IDS.has(w.id) ? `<button class="ex-speak" data-act="speak" data-text="${esc(w.word)}" data-lang="${esc(lang.id)}" data-id="${esc(w.id)}">🔊 听原形</button>` : ''}</details>`).join('')}</div></div>` : '';
   return `<div class="page-head"><h1 class="page-title">词库</h1><p class="page-desc">${esc(lang.name)}内置 ${all.length} 个词，可在「设置」里导入自己的词表。</p></div>
     ${langPicker()}
+    ${conjCard}
     <div class="card" style="padding:0;overflow:hidden">
       <div style="padding:18px 22px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <input type="text" id="wordSearch" placeholder="🔍 搜索写法或中文…" style="max-width:320px" autocomplete="off">
         <span class="pill pill-gray" id="wordCount">${all.length} 个词</span></div>
       <div style="overflow-x:auto;padding:0 12px 14px"><table style="width:100%;border-collapse:collapse;font-size:14px" id="wordTable"><tbody>${rows}</tbody></table></div></div>
+    ${lang.audioPartial ? `<div class="card" style="background:var(--green-tint);border-color:#dcefe2">
+      <h3 class="card-title">🎙️ ${esc(lang.name)}标准发音 · 官方真人录音</h3>
+      <p style="font-size:13px;color:var(--ink-2);margin:0">能精确匹配官方辞典词目的词条，配的是<b>教育部《臺灣台語常用詞辭典》的逐词真人录音（原档、未剪辑）</b>，并用官方<b>台罗拼音</b>校正了注音；少数自造短语没有官方录音，保留近似注音，答题时改用「选正确读音」而不是听音题。音档以 <b>CC BY-ND 3.0 TW</b> 释出：须署名、禁止改作、可商用。这是<b>台湾通行腔</b>，与泉州／厦门腔略有差异。</p></div>` : ''}
     ${!lang.ttsOk ? `<div class="card" style="background:var(--green-tint);border-color:#dcefe2">
       <h3 class="card-title">🗣️ 关于${esc(lang.name)}发音</h3>
-      <p style="font-size:13px;color:var(--ink-2);margin:0">${esc(lang.name)}目前没有浏览器可用的语音合成，也没有统一的拼音方案。词库里的注音是<b>近似读音</b>，仅供跟读参考，实际声调和口音请以本地人发音为准。学习时用「选出正确读音」题型代替听音题。</p></div>` : ''}
+      <p style="font-size:13px;color:var(--ink-2);margin:0">${esc(lang.name)}没有开放的官方逐词音档，吴语也没有统一的拼音方案，浏览器语音合成同样不支持。词库里的注音是<b>近似读音</b>，仅供跟读参考，实际声调和口音请以本地人发音为准；这里宁可不放声音，也不用普通话 TTS 念方言本字（那是错误发音）。学习时用「选出正确读音」题型代替听音题。</p></div>` : ''}
     ${lang.rtl ? `<div class="card" style="background:#fdf8ef;border-color:#eee0c4">
       <h3 class="card-title">↔️ 关于从右向左书写</h3>
       <p style="font-size:13px;color:var(--ink-2);margin:0">${esc(lang.name)}从右向左书写，界面会按文字方向自动排版。词条附<b>拉丁转写</b>（如 <span dir="ltr">marḥaban</span>）方便初学者跟读；现代标准阿拉伯语通常不标元音符号，实际读音请以内置发音音频为准。</p></div>` : ''}`;
@@ -765,7 +880,8 @@ function viewSettings() {
         <div class="goal-options">${[0.7, 0.9, 1.1].map((r) => `<button class="goal-opt ${S.rate === r ? 'active' : ''}" data-act="rate" data-v="${r}">${r}×</button>`).join('')}</div></div>
       <div style="margin-top:14px;padding:14px 16px;background:var(--green-tint);border:1px solid #dcefe2;border-radius:12px">
         <b style="font-size:13.5px">🎧 内置离线发音 ${AUDIO_IDS.size} 条</b>
-        <p style="font-size:12.5px;color:var(--ink-2);margin:7px 0">西 / 法 / 俄 / 德 / 日 / 韩 / 意 / 葡 / 阿拉伯语共 <b>${LANGS.filter((l) => l.ttsOk).length} 门语言、${[...AUDIO_IDS].filter((id) => !id.endsWith('-ex')).length} 个单词 + ${[...AUDIO_IDS].filter((id) => id.endsWith('-ex')).length} 句完整例句</b>，全部由微软神经语音生成，多音节短语与整句都能完整朗读。<b>微信、QQ 内置浏览器都能播放</b>，不依赖浏览器语音合成；每条发音首次播放后自动缓存，之后断网也能听。<b>答题时点选项即发音，按「检查」后自动朗读整句</b>（可在上面单独关掉）。上海话与闽南话两门方言暂无语音，仍用近似注音练习。</p>
+        <p style="font-size:12.5px;color:var(--ink-2);margin:7px 0">西 / 法 / 俄 / 德 / 日 / 韩 / 意 / 葡 / 阿拉伯语 <b>9 门外语</b>由微软神经语音生成，单词与完整例句都能朗读；<b>闽南话</b>另有 <b>103 条教育部官方辞典真人录音</b>（原档、未改作，附官方台罗）。<b>微信、QQ 内置浏览器都能播放</b>，不依赖浏览器语音合成；每条发音首次播放后自动缓存，之后断网也能听。<b>答题时点选项即发音，按「检查」后自动朗读整句</b>（可在上面单独关掉）。</p>
+        <p style="font-size:12px;color:var(--ink-2);margin:0 0 8px">📜 <b>音源署名</b>：闽南话音档来自教育部《臺灣台語常用詞辭典》（sutian.moe.edu.tw），文字与音档以 <b>CC BY-ND 3.0 TW</b> 释出——须标注出处、不得改作、可商用；本应用仅原样引用逐词音档，未剪辑、未变速、未拼接。上海话无开放官方音档，仍用近似注音练习，不放假发音。</p>
         <p style="font-size:12px;color:var(--ink-3);margin:0 0 10px">当前环境：${voices.length ? `系统语音可用（${voices.length} 个音色）` : '浏览器未提供系统语音（常见于微信内置浏览器）→ 已自动使用内置音频'} · 播放引擎已针对微信 X5 内核解锁${mediaUnlocked ? '（已就绪）' : '（等待首次触摸）'}</p>
         <div class="btn-row" style="justify-content:flex-start;gap:8px;flex-wrap:wrap">
           <button class="btn btn-outline btn-sm" data-act="speak" data-text="hola" data-lang="es" data-id="es-u1-1">🔊 测单词</button>
@@ -850,6 +966,7 @@ document.addEventListener('click', (e) => {
     if (next) startQuiz(next.id, false, null, S.lang); else startChallenge(S.lang); return;
   }
   if (act === 'challenge') { startChallenge(S.lang); return; }
+  if (act === 'daily') { startDaily(S.lang); return; }
   if (act === 'locked') { toast('🔒 先完成这门语言前面的课程就能解锁'); return; }
   if (act === 'lesson') { const l = lessonById(el.dataset.id); startQuiz(el.dataset.id, false, null, l ? l.langId : S.lang); return; }
   if (act === 'speak') { speak(el.dataset.text, el.dataset.lang || S.lang, { btn: el, id: el.dataset.id }); return; }
@@ -857,8 +974,9 @@ document.addEventListener('click', (e) => {
   if (act === 'quit') { closeQuiz(); return; }
   if (act === 'quit-force') { closeQuiz(true); return; }
   if (act === 'again') {
-    const id = Q.lessonId, rev = Q.review, lid = Q.langId, wasCh = Q.challenge; closeQuiz(true);
-    if (wasCh) startChallenge(lid);
+    const id = Q.lessonId, rev = Q.review, lid = Q.langId, wasCh = Q.challenge, wasDaily = Q.daily; closeQuiz(true);
+    if (wasDaily) startDaily(lid);
+    else if (wasCh) startChallenge(lid);
     else if (rev && !id) startQuiz(null, true, S.mistakes.map(wordById).filter((w) => w && w.langId === lid), lid);
     else startQuiz(id, rev, null, lid); return;
   }
