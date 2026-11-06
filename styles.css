@@ -248,6 +248,16 @@ b, strong { font-weight: 700; }
 .q-ipa { color: var(--ink-3); font-size: 15px; margin: 0 0 20px; }
 .q-example { background: var(--surface-soft); border-left: 3px solid var(--line-2); border-radius: 0 10px 10px 0; padding: 10px 14px; font-size: 13.5px; color: var(--ink-2); margin-top: 18px; }
 .q-example i { color: var(--ink-3); display: block; font-size: 12.5px; font-style: normal; margin-top: 2px; }
+/* 朗读整句例句：内联小按钮，微信里点击即在手势链内播放 */
+.ex-speak { display: inline-block; margin: 6px 0 2px; padding: 3px 10px; border: 1px solid var(--line-2);
+  border-radius: 999px; background: #fff; color: var(--blue); font-size: 12px; font-weight: 600;
+  line-height: 1.5; cursor: pointer; vertical-align: middle; }
+.ex-speak:hover { background: var(--blue-soft); }
+.ex-speak.playing { background: var(--blue-soft); }
+.word-meta .ex-speak { margin: 4px 0 0; font-size: 11px; padding: 2px 8px; }
+.ex-speak--fb { margin-left: 12px; }
+.word-ex .ex-speak { margin: 2px 0 2px 6px; font-size: 11px; padding: 1px 8px; }
+@media (max-width: 560px) { .ex-speak--fb { display: block; margin: 8px 0 0; } }
 .speak-btn {
   display: inline-flex; align-items: center; gap: 10px;
   background: #fff; border: 2px solid var(--line-2); box-shadow: 0 3px 0 var(--line-2);
@@ -340,6 +350,16 @@ b, strong { font-weight: 700; }
 .mastery { display: flex; gap: 3px; justify-content: flex-end; margin-top: 5px; }
 .mastery i { width: 7px; height: 7px; border-radius: 50%; background: #e2e7e0; }
 .mastery i.on { background: var(--green); }
+/* 词库表格：窄屏隐藏「单元」列、例句换行、操作按钮纵向排，避免中文被挤成竖排 */
+#wordTable td { vertical-align: top; }
+#wordTable .word-ex { font-style: normal; line-height: 1.5; }
+@media (max-width: 600px) {
+  #wordTable tr > td:nth-child(3) { display: none; }
+  #wordTable tr > td:last-child { white-space: normal; min-width: 62px; }
+  #wordTable tr > td:last-child .mini-speak,
+  #wordTable tr > td:last-child .ex-speak { display: inline-block; margin: 0 2px 4px; }
+  #wordTable .word-ex { max-width: 200px; }
+}
 
 /* ---------------------------- 统计 ---------------------------- */
 .heat { display: flex; gap: 6px; align-items: flex-end; height: 108px; margin: 8px 0 6px; }
@@ -443,7 +463,8 @@ textarea { min-height: 130px; font-family: ui-monospace, SFMono-Regular, Menlo, 
   .unit-body { padding: 18px 12px 26px; }
   .hero { padding: 21px; }
   .word-row { padding: 11px 13px; gap: 9px; }
-  .word-ex { display: none; }
+  .word-ex { display: block; }   /* 手机上保留例句，朗读整句按钮要可见 */
+  .word-ex .ex-speak { display: inline-block; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }

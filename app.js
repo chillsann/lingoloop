@@ -109,34 +109,37 @@ function beep(ok) {
   } catch { /* 静默 */ }
 }
 /* ------------------------------------------------------------ 发音引擎
- * 微信内置浏览器（安卓 X5 / iOS WKWebView）经常不提供 speechSynthesis 语音，
- * 或 getVoices() 返回空，导致点了喇叭完全没声音。
- * 因此发音改为三级：① 仓库自带的离线 mp3 → ② 系统语音合成 → ③ 在线词典音频。
- * 内置 96 个单词音频覆盖西 / 法 / 俄 / 德全部词条，不联网、不依赖浏览器 TTS。
+ * 微信内置浏览器（安卓 X5 / iOS WKWebView）有两个坑：
+ *  ① 每次 new Audio() 动态新建元素，X5 上常见「首次点击没声音」，且 play()
+ *     必须发生在用户手势的同步调用链里，异步回调里调用会被系统拒绝。
+ *  ② 媒体播放能力需由真实手势或 WeixinJSBridgeReady 解锁，而且
+ *     「解锁用的是哪个 <audio> 元素，就必须用哪个元素播放」才有效。
+ * 因此全站只复用一个常驻 <audio> 元素（带 playsinline / x5-playsinline），
+ * 首次手势与微信 JSBridge 双重解锁，play() 失败自动重试一次，
+ * 仍失败才降级到系统语音合成 / 在线词典音频。
+ * 内置音频：data/audio/ 下 432 条 mp3（216 单词 + 216 整句例句），
+ * 离线可用，不依赖浏览器 TTS、不依赖任何第三方服务。
  * ------------------------------------------------------------------ */
+const AUDIO_IDS = new Set(window.LINGO_AUDIO || []);
+const ONLINE_LE = { es: 'es', fr: 'fr', ru: 'ru', de: 'de', ja: 'ja', ko: 'ko', it: 'it', pt: 'pt', ar: 'ar' };
+const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+
 let voices = [];
 function refreshVoices() { try { voices = window.speechSynthesis ? speechSynthesis.getVoices() : []; } catch { voices = []; } }
 if (window.speechSynthesis) { refreshVoices(); speechSynthesis.onvoiceschanged = refreshVoices; }
 
-const AUDIO_IDS = new Set(window.LINGO_AUDIO || []);
-const ONLINE_LE = { es: 'es', fr: 'fr', ru: 'ru', de: 'de' };
-let curAudio = null, mediaUnlocked = false;
-
-/* 移动端 WebView 首次必须由真实手势解锁媒体播放，否则 setTimeout 里的 play() 会被拒 */
-function unlockMedia() {
-  if (mediaUnlocked) return;
-  mediaUnlocked = true;
-  try {
-    const a = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=');
-    a.playsInline = true;
-    const p = a.play();
-    if (p && p.catch) p.catch(() => {});
-    a.pause();
-  } catch { /* 忽略 */ }
+let player = null, curAudio = null, mediaUnlocked = false;
+/** 常驻播放器：只创建一次并挂到 DOM，微信 X5 / iOS 都认这个元素 */
+function getPlayer() {
+  if (player) return player;
+  player = document.createElement('audio');
+  ['playsinline', 'webkit-playsinline', 'x5-playsinline'].forEach((k) => player.setAttribute(k, ''));
+  player.setAttribute('preload', 'auto');
+  player.playsInline = true;
+  player.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none';
+  document.body.appendChild(player);
+  return player;
 }
-document.addEventListener('touchend', unlockMedia, { once: true, capture: true });
-document.addEventListener('click', unlockMedia, { once: true, capture: true });
-
 function stopAudio() {
   if (curAudio) { try { curAudio.pause(); curAudio.currentTime = 0; } catch {} curAudio = null; }
   try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch {}
@@ -147,22 +150,62 @@ function bindBtn(a, btn) {
   const done = () => btn.classList.remove('playing');
   a.onended = done; a.onerror = done;
 }
-/** 播放内置 mp3；返回 true 表示已发起播放（失败通过 onFail 异步回调） */
-function playFile(id, slow, btn, onFail) {
+/** 解锁媒体播放：解锁与播放必须用同一个元素，微信 X5 才认 */
+function unlockMedia() {
+  if (mediaUnlocked) return;
+  mediaUnlocked = true;
+  try {
+    const a = getPlayer();
+    a.src = SILENT_WAV; a.load();
+    const p = a.play();
+    if (p && p.catch) p.catch(() => {});
+    a.pause();
+  } catch { /* 忽略 */ }
+}
+document.addEventListener('touchend', unlockMedia, { once: true, capture: true });
+document.addEventListener('click', unlockMedia, { once: true, capture: true });
+/* 微信 JSBridge 就绪后主动解锁一次（部分安卓 X5 必需），并顺带触发网络能力初始化 */
+document.addEventListener('WeixinJSBridgeReady', () => {
+  if (window.WeixinJSBridge) { try { WeixinJSBridge.invoke('getNetworkType', {}, () => {}); } catch {} }
+  unlockMedia();
+}, false);
+
+/** 通用播放：复用常驻元素，play() 被拒时隔 160ms 自动重试一次 */
+function playUrl(url, slow, btn, onFail) {
   try {
     stopAudio();
-    const a = new Audio('data/audio/' + encodeURIComponent(id) + '.mp3');
-    a.playsInline = true; a.preload = 'auto';
-    if (slow) a.playbackRate = 0.7;
+    const a = getPlayer();
+    a.onended = a.onerror = null;
+    a.pause();
+    a.src = url;
+    a.playbackRate = slow ? 0.7 : 1;
+    a.load();
     curAudio = a; bindBtn(a, btn);
-    let failed = false;
-    const fail = () => { if (failed) return; failed = true; if (btn) btn.classList.remove('playing'); if (onFail) onFail(); };
-    a.onerror = fail;
-    const p = a.play();
-    if (p && p.catch) p.catch(fail);
-    else if (p && p.then) p.then(null, fail);
+    let done = false;
+    const fail = () => {
+      if (done) return; done = true;
+      if (btn) btn.classList.remove('playing');
+      if (onFail) onFail();
+    };
+    let tries = 0;
+    const attempt = () => {
+      tries++;
+      let p;
+      try { p = a.play(); } catch { fail(); return; }
+      if (p && p.then) {
+        p.then(() => { done = true; }).catch(() => {
+          if (tries < 2) setTimeout(attempt, 160); else fail();
+        });
+      } else done = true;   // 不支持 Promise 的老 WebView，交给 onended/onerror
+    };
+    attempt();
+    a.onerror = () => { if (btn) btn.classList.remove('playing'); if (!done) fail(); };
     return true;
   } catch { return false; }
+}
+/** 播放内置 mp3；返回 true 表示已发起播放（失败通过 onFail 异步回调） */
+function playFile(id, slow, btn, onFail) {
+  return playUrl('data/audio/' + encodeURIComponent(id) + '.mp3', slow, btn, onFail);
 }
 /** 系统语音合成（桌面浏览器可用，微信里常常为空） */
 function playTTS(text, lang, slow, btn) {
@@ -181,19 +224,12 @@ function playTTS(text, lang, slow, btn) {
     return true;
   } catch { return false; }
 }
-/** 在线词典音频，用于自定义导入的词（audio 标签不受 CORS 限制） */
+/** 在线词典音频，仅用于自定义导入的词（audio 标签不受 CORS 限制） */
 function playOnline(text, langId, btn) {
-  try {
-    stopAudio();
-    const a = new Audio('https://dict.youdao.com/dictvoice?audio=' + encodeURIComponent(text) + '&le=' + (ONLINE_LE[langId] || 'en'));
-    a.playsInline = true; curAudio = a; bindBtn(a, btn);
-    const fail = () => { if (btn) btn.classList.remove('playing'); toast('这个词暂时无法发音'); };
-    a.onerror = fail;
-    const p = a.play(); if (p && p.catch) p.catch(fail);
-    return true;
-  } catch { return false; }
+  const url = 'https://dict.youdao.com/dictvoice?audio=' + encodeURIComponent(text) + '&le=' + (ONLINE_LE[langId] || 'en');
+  return playUrl(url, false, btn, () => toast('这个词暂时无法发音'));
 }
-/** 发音主入口。opts: { btn, id, slow, auto } */
+/** 发音主入口。opts: { btn, id, slow, auto }；id 传 xxx-ex 即朗读整句例句 */
 function speak(text, langId, opts = {}) {
   const { btn = null, id = null, slow = false, auto = false } = opts;
   const lang = langOf(langId || S.lang);
@@ -384,11 +420,14 @@ function renderQuiz() {
         else if (i === Q.selected) cls = 'selected';
         return `<button class="option ${cls}" data-act="select" data-i="${i}" ${Q.checked ? 'disabled' : ''}><span class="key">${i + 1}</span><span dir="auto">${esc(o)}</span></button>`;
       }).join('')}</div>
-      ${!Q.checked && !isListen && !isPron ? `<div class="q-example">${dv(w.ex || '')}<i>${esc(w.exZh || '')}</i></div>` : ''}`;
+      ${!Q.checked && !isListen && !isPron && w.ex ? `<div class="q-example">${dv(w.ex || '')}<i>${esc(w.exZh || '')}</i>
+        ${lang.ttsOk && AUDIO_IDS.has(w.id + '-ex') ? `<button class="ex-speak" data-act="speak" data-text="${esc(w.ex)}" data-lang="${esc(Q.langId)}" data-id="${esc(w.id)}-ex" aria-label="朗读整句">🔊 听整句</button>` : ''}</div>` : ''}`;
   }
+  const exBtn = lang.ttsOk && w.ex && AUDIO_IDS.has(w.id + '-ex')
+    ? `<button class="ex-speak ex-speak--fb" data-act="speak" data-text="${esc(w.ex)}" data-lang="${esc(Q.langId)}" data-id="${esc(w.id)}-ex" aria-label="朗读整句例句">🔊 听整句</button>` : '';
   const fb = Q.checked
     ? `<div class="feedback ${Q.lastOk ? 'ok' : 'no'}"><b><span class="feedback-ico">${Q.lastOk ? '✓' : '✕'}</span>${Q.lastOk ? pick(['很好！', '答对了', '漂亮', '就是这个']) : '再记一下'}</b>
-        <small>${Q.lastOk ? `+${Q.lastXp} XP` : `正确答案：${esc(q.answer)}`}</small></div>`
+        <small>${Q.lastOk ? `+${Q.lastXp} XP` : `正确答案：${esc(q.answer)}`}</small>${Q.lastOk ? exBtn : ''}</div>`
     : `<div class="feedback"><b style="color:var(--ink-3);font-size:14px">第 ${Q.idx + 1} / ${Q.questions.length} 题 · ${esc(lang.name)}</b><small>答错会扣一颗红心，别紧张</small></div>`;
   const canCheck = q.type === 'sentence' ? Q.placed.length === q.chops.length : Q.selected !== null;
   const btnLabel = Q.checked ? (Q.idx === Q.questions.length - 1 ? '完成' : '继续') : '检查';
@@ -413,7 +452,11 @@ function doCheck() {
       : q.options[Q.selected] === q.answer;
     Q.lastOk = ok; Q.lastXp = ok ? 10 : 0; Q.checked = true;
     if (ok) {
-      Q.correct++; Q.xp += Q.lastXp; beep(true); speak(q.word.word, Q.langId, { id: q.word.id });
+      Q.correct++; Q.xp += Q.lastXp; beep(true);
+      /* 句子排序题答对后朗读完整例句；其余题型朗读单词 */
+      if (q.type === 'sentence' && q.word.ex && AUDIO_IDS.has(q.word.id + '-ex'))
+        speak(q.word.ex, Q.langId, { id: q.word.id + '-ex' });
+      else speak(q.word.word, Q.langId, { id: q.word.id });
       const st = S.wordStats[q.word.id] || { c: 0, w: 0, lv: 0 };
       st.c++; st.lv = clamp((st.lv || 0) + 1, 0, 5); S.wordStats[q.word.id] = st;
       if (Q.review) S.mistakes = S.mistakes.filter((id) => id !== q.word.id);
@@ -567,19 +610,21 @@ function wordRow(w) {
   return `<div class="word-row"><div class="word-main">
       <div><span class="word-en" dir="auto">${esc(w.word)}</span><span class="word-ipa">${esc(w.pron || '')}</span></div>
       <div class="word-zh">${esc(w.zh)} <span class="pill pill-gray" style="font-size:10px;padding:1px 7px">${esc(lang.name)}</span></div>
-      ${w.ex ? `<div class="word-ex" dir="auto">${esc(w.ex)}</div>` : ''}</div>
+      ${w.ex ? `<div class="word-ex" dir="auto">${esc(w.ex)}
+        ${lang.ttsOk && AUDIO_IDS.has(w.id + '-ex') ? `<button class="ex-speak" data-act="speak" data-text="${esc(w.ex)}" data-lang="${esc(w.langId)}" data-id="${esc(w.id)}-ex" aria-label="朗读整句">🔊 听整句</button>` : ''}</div>` : ''}</div>
     <div class="word-meta">
-      ${lang.ttsOk ? `<button class="mini-speak" data-act="speak" data-text="${esc(w.word)}" data-lang="${esc(w.langId)}" data-id="${esc(w.id)}" aria-label="朗读">🔊</button>` : '<span style="font-size:11px;color:var(--ink-3)">无语音</span>'}
+      ${lang.ttsOk ? `<button class="mini-speak" data-act="speak" data-text="${esc(w.word)}" data-lang="${esc(w.langId)}" data-id="${esc(w.id)}" aria-label="朗读单词">🔊</button>` : '<span style="font-size:11px;color:var(--ink-3)">无语音</span>'}
       <div class="mastery" title="掌握度 ${st.lv}/5">${[1,2,3,4,5].map((i) => `<i class="${i <= (st.lv || 0) ? 'on' : ''}"></i>`).join('')}</div>
     </div></div>`;
 }
 function viewWords() {
   const lang = curLang(), all = wordsOfLang(lang.id);
-  const rows = all.map((w) => `<tr>
-      <td style="padding:11px 10px;border-top:1px solid var(--line)"><b dir="auto">${esc(w.word)}</b><div style="font-size:11.5px;color:var(--ink-3)">${esc(w.pron || '')}</div></td>
+  const rows = all.map((w) => `<tr data-id="${esc(w.id)}">
+      <td style="padding:11px 10px;border-top:1px solid var(--line)"><b dir="auto">${esc(w.word)}</b><div style="font-size:11.5px;color:var(--ink-3)">${esc(w.pron || '')}</div>
+        ${w.ex ? `<div class="word-ex" dir="auto">${esc(w.ex)}</div>` : ''}</td>
       <td style="padding:11px 10px;border-top:1px solid var(--line)">${esc(w.zh)}</td>
       <td style="padding:11px 10px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-2)">${esc(w.unitTitle)}</td>
-      <td style="padding:11px 10px;border-top:1px solid var(--line);text-align:right">${lang.ttsOk ? `<button class="mini-speak" data-act="speak" data-text="${esc(w.word)}" data-lang="${esc(lang.id)}" data-id="${esc(w.id)}">🔊</button>` : ''}</td></tr>`).join('');
+      <td style="padding:11px 10px;border-top:1px solid var(--line);text-align:right;white-space:nowrap">${lang.ttsOk ? `<button class="mini-speak" data-act="speak" data-text="${esc(w.word)}" data-lang="${esc(lang.id)}" data-id="${esc(w.id)}" aria-label="朗读单词">🔊</button>${AUDIO_IDS.has(w.id + '-ex') ? `<button class="ex-speak" data-act="speak" data-text="${esc(w.ex)}" data-lang="${esc(lang.id)}" data-id="${esc(w.id)}-ex" aria-label="朗读整句">整句</button>` : ''}` : ''}</td></tr>`).join('');
   return `<div class="page-head"><h1 class="page-title">词库</h1><p class="page-desc">${esc(lang.name)}内置 ${all.length} 个词，可在「设置」里导入自己的词表。</p></div>
     ${langPicker()}
     <div class="card" style="padding:0;overflow:hidden">
@@ -637,9 +682,11 @@ function viewSettings() {
         <div class="goal-options">${[0.7, 0.9, 1.1].map((r) => `<button class="goal-opt ${S.rate === r ? 'active' : ''}" data-act="rate" data-v="${r}">${r}×</button>`).join('')}</div></div>
       <div style="margin-top:14px;padding:14px 16px;background:var(--green-tint);border:1px solid #dcefe2;border-radius:12px">
         <b style="font-size:13.5px">🎧 内置离线发音 ${AUDIO_IDS.size} 条</b>
-        <p style="font-size:12.5px;color:var(--ink-2);margin:7px 0">西 / 法 / 俄 / 德 / 日 / 韩 / 意 / 葡 / 阿拉伯语共 <b>9 门语言、216 条单词发音</b>，<b>微信、QQ 内置浏览器和离线状态下都能播放</b>，不依赖浏览器语音合成。上海话与闽南话两门方言暂无语音，仍用近似注音练习。</p>
-        <p style="font-size:12px;color:var(--ink-3);margin:0 0 10px">当前环境：${voices.length ? `系统语音可用（${voices.length} 个音色）` : '浏览器未提供系统语音（常见于微信内置浏览器）→ 已自动使用内置音频'}</p>
-        <button class="btn btn-outline btn-sm" data-act="speak" data-text="hola" data-lang="es" data-id="es-u1-1">🔊 测试西班牙语发音</button></div></div>
+        <p style="font-size:12.5px;color:var(--ink-2);margin:7px 0">西 / 法 / 俄 / 德 / 日 / 韩 / 意 / 葡 / 阿拉伯语共 <b>9 门语言、216 个单词 + 216 句完整例句</b>，全部由微软神经语音生成，多音节短语与整句都能完整朗读。<b>微信、QQ 内置浏览器和离线状态下都能播放</b>，不依赖浏览器语音合成。上海话与闽南话两门方言暂无语音，仍用近似注音练习。</p>
+        <p style="font-size:12px;color:var(--ink-3);margin:0 0 10px">当前环境：${voices.length ? `系统语音可用（${voices.length} 个音色）` : '浏览器未提供系统语音（常见于微信内置浏览器）→ 已自动使用内置音频'} · 播放引擎已针对微信 X5 内核解锁${mediaUnlocked ? '（已就绪）' : '（等待首次触摸）'}</p>
+        <div class="btn-row" style="justify-content:flex-start;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-outline btn-sm" data-act="speak" data-text="hola" data-lang="es" data-id="es-u1-1">🔊 测单词</button>
+          <button class="btn btn-outline btn-sm" data-act="speak" data-text="¡Hola! ¿Cómo estás?" data-lang="es" data-id="es-u1-1-ex">🔊 测整句</button></div></div></div>
     <div class="card"><h3 class="card-title">导入自定义词库</h3>
       <p class="card-sub">把自己的词表变成一个可学习的新单元，先选语言，再粘贴 JSON 数组或 CSV。</p>
       <div class="field" style="max-width:300px"><label for="importLang">归入哪门语言</label><select id="importLang">${langOpts(S.lang)}</select></div>
