@@ -1,0 +1,17 @@
+{
+  "name": "Lingoloop · 无广告多语种学习",
+  "short_name": "Lingoloop",
+  "description": "零广告、零账号、数据完全本地的开源多语种学习应用：西班牙语、法语、俄语、德语、上海话",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#fdfbf6",
+  "theme_color": "#fdfbf6",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
