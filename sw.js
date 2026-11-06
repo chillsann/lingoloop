@@ -1,5 +1,5 @@
 /* Lingoloop Service Worker — 离线可用，不联网、不追踪 */
-const CACHE = 'lingoloop-v3';
+const CACHE = 'lingoloop-v4';
 const CORE = [
   './', './index.html', './styles.css', './app.js',
   './data/words.js', './data/audio/manifest.js',

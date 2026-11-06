@@ -1,7 +1,7 @@
 {
   "name": "Lingoloop · 无广告多语种学习",
   "short_name": "Lingoloop",
-  "description": "零广告、零账号、数据完全本地的开源多语种学习应用：西班牙语、法语、俄语、德语、上海话",
+  "description": "零广告、零账号、数据完全本地的开源多语种学习应用：西/法/俄/德/日/韩/意/葡/阿拉伯语/上海话/闽南话",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

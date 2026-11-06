@@ -1,5 +1,5 @@
 /* Lingoloop — 零广告 · 零账号 · 零后端的多语种学习应用
- * 中文母语者 → 西班牙语 / 法语 / 俄语 / 德语 / 上海话
+ * 中文母语者 → 西 / 法 / 俄 / 德 / 日 / 韩 / 意 / 葡 / 阿拉伯语 / 上海话 / 闽南话
  * 纯原生 JS，无构建、无依赖；数据仅存浏览器 localStorage。 */
 
 const { LANGS, BUILTIN_UNITS, flattenWords } = window.LINGO;
@@ -16,6 +16,8 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+/* 外语文本用 dir=auto 包裹：阿拉伯语等 RTL 文字自动从右向左排，中文/拉丁文保持 LTR */
+const dv = (s) => `<span dir="auto">${esc(s)}</span>`;
 const rnd = (n) => Math.floor(Math.random() * n);
 const pick = (a) => a[rnd(a.length)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -267,7 +269,8 @@ function nearMisses(word, hanzi) {
 const norm = (s) => String(s).toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
 function makeQ(word, type, pool, lang) {
   let t = type;
-  if (t === 'sentence' && (lang.hanzi || !word.ex)) t = 'spell';
+  /* 汉字方言、无空格语言（日/韩）、RTL 语言（阿拉伯语）都不做词块排序题 */
+  if (t === 'sentence' && (lang.hanzi || lang.skipSentence || !word.ex)) t = 'spell';
   if (t === 'listen' && !lang.ttsOk && !word.pron) t = 'zh2word';
   const q = { type: t, word, langId: lang.id, id: uid() };
   if (t === 'word2zh') { q.options = shuffle([word.zh, ...distractors(word, pool, 'zh')]); q.answer = word.zh; }
@@ -286,8 +289,9 @@ function buildQuiz(lessonWords, langId, opts = {}) {
   const n = opts.count || Math.max(6, Math.min(12, lessonWords.length * 2));
   const target = Math.max(1, Math.min(lessonWords.length, Math.ceil(n / 2)));
   const chosen = shuffle(lessonWords).slice(0, target);
-  const extras = lang.hanzi ? ['listen', 'spell', 'zh2word', 'listen', 'word2zh']
-                            : ['listen', 'spell', 'sentence', 'zh2word', 'word2zh'];
+  const extras = (lang.hanzi || lang.skipSentence)
+    ? ['listen', 'spell', 'zh2word', 'listen', 'word2zh']
+    : ['listen', 'spell', 'sentence', 'zh2word', 'word2zh'];
   const qs = [];
   chosen.forEach((w, i) => {
     qs.push(makeQ(w, i % 2 ? 'zh2word' : 'word2zh', pool, lang));
@@ -353,11 +357,11 @@ function renderQuiz() {
     ? `<button class="btn btn-ghost btn-sm" data-act="speak" data-text="${esc(txt)}" data-lang="${esc(Q.langId)}" data-id="${esc(w.id)}">🔊 ${label}</button>` : '';
   let body = '';
   if (q.type === 'sentence') {
-    const placed = Q.placed.map((i) => `<button class="chip placed" data-act="unplace" data-i="${i}">${esc(q.chops[i])}</button>`).join('');
+    const placed = Q.placed.map((i) => `<button class="chip placed" data-act="unplace" data-i="${i}"><span dir="auto">${esc(q.chops[i])}</span></button>`).join('');
     body = `<div class="q-kind">${qKindLabel(q)} · ${esc(lang.name)}</div>
       <h2 class="q-title">翻译这句话</h2><p class="q-hint">${esc(w.exZh || w.zh)}</p>
       <div class="answer-slot">${placed || '<span class="placeholder">依次点击下方词块…</span>'}</div>
-      <div class="wordbank">${q.chops.map((c, i) => `<button class="chip ${Q.placed.includes(i) ? 'used' : ''}" data-act="place" data-i="${i}" ${Q.placed.includes(i) ? 'disabled' : ''}>${esc(c)}</button>`).join('')}</div>
+      <div class="wordbank">${q.chops.map((c, i) => `<button class="chip ${Q.placed.includes(i) ? 'used' : ''}" data-act="place" data-i="${i}" ${Q.placed.includes(i) ? 'disabled' : ''}><span dir="auto">${esc(c)}</span></button>`).join('')}</div>
       <div class="q-example">💡 提示：${esc(w.zh)}${w.pron ? ` · ${esc(w.pron)}` : ''}</div>`;
   } else {
     const isListen = q.type === 'listen' && !q.noAudio;
@@ -365,12 +369,12 @@ function renderQuiz() {
     let head;
     if (isListen) head = `<button class="speak-btn" data-act="speak" data-text="${esc(w.word)}" data-lang="${esc(Q.langId)}" data-id="${esc(w.id)}" aria-label="播放发音">🔊</button>
         <button class="btn btn-ghost btn-sm" data-act="speak-slow" data-text="${esc(w.word)}" data-lang="${esc(Q.langId)}" data-id="${esc(w.id)}">🐢 慢速再听一次</button>`;
-    else if (isPron) head = `<div class="q-word">${esc(w.word)}</div><div class="q-ipa">这个词怎么念？参照近似注音选一选</div>`;
+    else if (isPron) head = `<div class="q-word">${dv(w.word)}</div><div class="q-ipa">这个词怎么念？参照近似注音选一选</div>`;
     else if (isSpell) head = `<div class="q-word">${esc(w.zh)}</div><div class="q-ipa">选出正确的${esc(lang.name)}写法</div>`;
-    else if (q.type === 'word2zh') head = `<div class="q-word">${esc(w.word)}</div><div class="q-ipa">${lang.ttsOk ? esc(w.pron || '') : '近似读音 · ' + esc(w.pron || '')}</div>${say(w.word, '听发音')}`;
+    else if (q.type === 'word2zh') head = `<div class="q-word">${dv(w.word)}</div><div class="q-ipa">${lang.ttsOk ? esc(w.pron || '') : '近似读音 · ' + esc(w.pron || '')}</div>${say(w.word, '听发音')}`;
     else head = `<div class="q-word">${esc(w.zh)}</div><div class="q-ipa">选出对应的${esc(lang.name)}说法</div>`;
     const titles = { word2zh: '这是什么意思？', zh2word: `「${esc(w.zh)}」怎么说？`, listen: isPron ? '选出正确读音' : '你听到了什么？', spell: `「${esc(w.zh)}」怎么写？` };
-    const hint = isListen ? '点击喇叭播放，可以反复听' : isPron ? '吴语暂无语音合成，这里用近似注音练习' : '点击选项后按「检查」，也可以按键盘 1–4';
+    const hint = isListen ? '点击喇叭播放，可以反复听' : isPron ? `${esc(lang.name)}暂无语音合成，这里用近似注音练习` : '点击选项后按「检查」，也可以按键盘 1–4';
     body = `<div class="q-kind ${isListen ? 'listen' : ''}">${qKindLabel(q)} · ${esc(lang.name)}</div>
       <h2 class="q-title">${titles[q.type] || '选一选'}</h2><p class="q-hint">${hint}</p>
       <div style="margin-bottom:26px">${head}</div>
@@ -378,9 +382,9 @@ function renderQuiz() {
         let cls = '';
         if (Q.checked) { if (o === q.answer) cls = 'correct'; else if (i === Q.selected) cls = 'wrong'; }
         else if (i === Q.selected) cls = 'selected';
-        return `<button class="option ${cls}" data-act="select" data-i="${i}" ${Q.checked ? 'disabled' : ''}><span class="key">${i + 1}</span><span>${esc(o)}</span></button>`;
+        return `<button class="option ${cls}" data-act="select" data-i="${i}" ${Q.checked ? 'disabled' : ''}><span class="key">${i + 1}</span><span dir="auto">${esc(o)}</span></button>`;
       }).join('')}</div>
-      ${!Q.checked && !isListen && !isPron ? `<div class="q-example">${esc(w.ex || '')}<i>${esc(w.exZh || '')}</i></div>` : ''}`;
+      ${!Q.checked && !isListen && !isPron ? `<div class="q-example">${dv(w.ex || '')}<i>${esc(w.exZh || '')}</i></div>` : ''}`;
   }
   const fb = Q.checked
     ? `<div class="feedback ${Q.lastOk ? 'ok' : 'no'}"><b><span class="feedback-ico">${Q.lastOk ? '✓' : '✕'}</span>${Q.lastOk ? pick(['很好！', '答对了', '漂亮', '就是这个']) : '再记一下'}</b>
@@ -465,7 +469,7 @@ function renderResult() {
         <div class="result-cell acc"><b>${f.acc}%</b><span>正确率</span></div>
         <div class="result-cell mis"><b>${Q.wrong}</b><span>需复习</span></div></div>
       ${list.length ? `<div class="mistake-list"><h4>📌 这些词再记一下</h4>
-        ${list.map((w) => `<div class="mistake-row"><b>${esc(w.word)}</b><span>${esc(w.zh)} · ${esc(w.pron || '')}</span></div>`).join('')}</div>` : ''}
+        ${list.map((w) => `<div class="mistake-row"><b>${dv(w.word)}</b><span>${esc(w.zh)} · ${esc(w.pron || '')}</span></div>`).join('')}</div>` : ''}
       <div class="result-actions">
         ${f.ranOut ? `<button class="btn btn-primary btn-lg" data-act="go-review">去复习错词（不扣红心）</button>` : ''}
         <button class="btn ${f.ranOut ? 'btn-outline' : 'btn-primary'} btn-lg" data-act="quit-force">返回${esc(lang.name)}课程地图</button>
@@ -496,7 +500,7 @@ function langPicker() {
       const p = langProgress(l.id);
       return `<button class="lang-card ${S.lang === l.id ? 'active' : ''}" style="--lc:${l.color}" data-act="lang" data-id="${l.id}">
         <span class="lang-emoji">${l.emoji}</span><span class="lang-name">${esc(l.name)}</span>
-        <span class="lang-native">${esc(l.native)}</span><span class="lang-prog">${p.done}/${p.total} 课</span></button>`;
+        <span class="lang-native" dir="auto">${esc(l.native)}</span><span class="lang-prog">${p.done}/${p.total} 课</span></button>`;
     }).join('')}</div>`;
 }
 function viewLearn() {
@@ -561,9 +565,9 @@ function viewReview() {
 function wordRow(w) {
   const st = S.wordStats[w.id] || { lv: 0, c: 0, w: 0 }, lang = langOf(w.langId);
   return `<div class="word-row"><div class="word-main">
-      <div><span class="word-en">${esc(w.word)}</span><span class="word-ipa">${esc(w.pron || '')}</span></div>
+      <div><span class="word-en" dir="auto">${esc(w.word)}</span><span class="word-ipa">${esc(w.pron || '')}</span></div>
       <div class="word-zh">${esc(w.zh)} <span class="pill pill-gray" style="font-size:10px;padding:1px 7px">${esc(lang.name)}</span></div>
-      ${w.ex ? `<div class="word-ex">${esc(w.ex)}</div>` : ''}</div>
+      ${w.ex ? `<div class="word-ex" dir="auto">${esc(w.ex)}</div>` : ''}</div>
     <div class="word-meta">
       ${lang.ttsOk ? `<button class="mini-speak" data-act="speak" data-text="${esc(w.word)}" data-lang="${esc(w.langId)}" data-id="${esc(w.id)}" aria-label="朗读">🔊</button>` : '<span style="font-size:11px;color:var(--ink-3)">无语音</span>'}
       <div class="mastery" title="掌握度 ${st.lv}/5">${[1,2,3,4,5].map((i) => `<i class="${i <= (st.lv || 0) ? 'on' : ''}"></i>`).join('')}</div>
@@ -572,7 +576,7 @@ function wordRow(w) {
 function viewWords() {
   const lang = curLang(), all = wordsOfLang(lang.id);
   const rows = all.map((w) => `<tr>
-      <td style="padding:11px 10px;border-top:1px solid var(--line)"><b>${esc(w.word)}</b><div style="font-size:11.5px;color:var(--ink-3)">${esc(w.pron || '')}</div></td>
+      <td style="padding:11px 10px;border-top:1px solid var(--line)"><b dir="auto">${esc(w.word)}</b><div style="font-size:11.5px;color:var(--ink-3)">${esc(w.pron || '')}</div></td>
       <td style="padding:11px 10px;border-top:1px solid var(--line)">${esc(w.zh)}</td>
       <td style="padding:11px 10px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-2)">${esc(w.unitTitle)}</td>
       <td style="padding:11px 10px;border-top:1px solid var(--line);text-align:right">${lang.ttsOk ? `<button class="mini-speak" data-act="speak" data-text="${esc(w.word)}" data-lang="${esc(lang.id)}" data-id="${esc(w.id)}">🔊</button>` : ''}</td></tr>`).join('');
@@ -585,7 +589,10 @@ function viewWords() {
       <div style="overflow-x:auto;padding:0 12px 14px"><table style="width:100%;border-collapse:collapse;font-size:14px" id="wordTable"><tbody>${rows}</tbody></table></div></div>
     ${!lang.ttsOk ? `<div class="card" style="background:var(--green-tint);border-color:#dcefe2">
       <h3 class="card-title">🗣️ 关于${esc(lang.name)}发音</h3>
-      <p style="font-size:13px;color:var(--ink-2);margin:0">吴语目前没有浏览器可用的语音合成，也没有统一的拼音方案。词库里的注音是<b>近似读音</b>，仅供跟读参考，实际声调和口音请以本地人发音为准。学习时用「选出正确读音」题型代替听音题。</p></div>` : ''}`;
+      <p style="font-size:13px;color:var(--ink-2);margin:0">${esc(lang.name)}目前没有浏览器可用的语音合成，也没有统一的拼音方案。词库里的注音是<b>近似读音</b>，仅供跟读参考，实际声调和口音请以本地人发音为准。学习时用「选出正确读音」题型代替听音题。</p></div>` : ''}
+    ${lang.rtl ? `<div class="card" style="background:#fdf8ef;border-color:#eee0c4">
+      <h3 class="card-title">↔️ 关于从右向左书写</h3>
+      <p style="font-size:13px;color:var(--ink-2);margin:0">${esc(lang.name)}从右向左书写，界面会按文字方向自动排版。词条附<b>拉丁转写</b>（如 <span dir="ltr">marḥaban</span>）方便初学者跟读；现代标准阿拉伯语通常不标元音符号，实际读音请以内置发音音频为准。</p></div>` : ''}`;
 }
 function viewStats() {
   const days = Array.from({ length: 7 }, (_, i) => dayOffset(dateKey(), i - 6));
@@ -630,7 +637,7 @@ function viewSettings() {
         <div class="goal-options">${[0.7, 0.9, 1.1].map((r) => `<button class="goal-opt ${S.rate === r ? 'active' : ''}" data-act="rate" data-v="${r}">${r}×</button>`).join('')}</div></div>
       <div style="margin-top:14px;padding:14px 16px;background:var(--green-tint);border:1px solid #dcefe2;border-radius:12px">
         <b style="font-size:13.5px">🎧 内置离线发音 ${AUDIO_IDS.size} 条</b>
-        <p style="font-size:12.5px;color:var(--ink-2);margin:7px 0">西 / 法 / 俄 / 德每个单词都自带 mp3，<b>微信、QQ 内置浏览器和离线状态下都能播放</b>，不依赖浏览器语音合成。上海话（吴语）无可用语音，仍用近似注音练习。</p>
+        <p style="font-size:12.5px;color:var(--ink-2);margin:7px 0">西 / 法 / 俄 / 德 / 日 / 韩 / 意 / 葡 / 阿拉伯语共 <b>9 门语言、216 条单词发音</b>，<b>微信、QQ 内置浏览器和离线状态下都能播放</b>，不依赖浏览器语音合成。上海话与闽南话两门方言暂无语音，仍用近似注音练习。</p>
         <p style="font-size:12px;color:var(--ink-3);margin:0 0 10px">当前环境：${voices.length ? `系统语音可用（${voices.length} 个音色）` : '浏览器未提供系统语音（常见于微信内置浏览器）→ 已自动使用内置音频'}</p>
         <button class="btn btn-outline btn-sm" data-act="speak" data-text="hola" data-lang="es" data-id="es-u1-1">🔊 测试西班牙语发音</button></div></div>
     <div class="card"><h3 class="card-title">导入自定义词库</h3>

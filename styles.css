@@ -241,7 +241,10 @@ b, strong { font-weight: 700; }
 .q-kind.listen { color: #3b7ba8; background: var(--blue-soft); }
 .q-title { font-size: clamp(22px, 4vw, 29px); font-weight: 800; letter-spacing: -.6px; margin: 0 0 8px; line-height: 1.4; }
 .q-hint { color: var(--ink-3); font-size: 13.5px; margin: 0 0 26px; }
-.q-word { font-size: clamp(30px, 6vw, 42px); font-weight: 800; letter-spacing: -.8px; margin: 0 0 4px; }
+/* 多语种文本方向：阿拉伯语等 RTL 文字自动从右向左排，中文/拉丁文保持 LTR */
+[dir="auto"] { unicode-bidi: isolate; }
+.option > span[dir="auto"] { flex: 1; text-align: start; }
+.q-word { font-size: clamp(30px, 6vw, 42px); font-weight: 800; letter-spacing: -.8px; margin: 0 0 4px; text-align: center; }
 .q-ipa { color: var(--ink-3); font-size: 15px; margin: 0 0 20px; }
 .q-example { background: var(--surface-soft); border-left: 3px solid var(--line-2); border-radius: 0 10px 10px 0; padding: 10px 14px; font-size: 13.5px; color: var(--ink-2); margin-top: 18px; }
 .q-example i { color: var(--ink-3); display: block; font-size: 12.5px; font-style: normal; margin-top: 2px; }
