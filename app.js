@@ -129,7 +129,7 @@ let voices = [];
 function refreshVoices() { try { voices = window.speechSynthesis ? speechSynthesis.getVoices() : []; } catch { voices = []; } }
 if (window.speechSynthesis) { refreshVoices(); speechSynthesis.onvoiceschanged = refreshVoices; }
 
-let player = null, curAudio = null, mediaUnlocked = false;
+let player = null, curAudio = null, mediaUnlocked = false, playSeq = 0;
 /** 常驻播放器：只创建一次并挂到 DOM，微信 X5 / iOS 都认这个元素 */
 function getPlayer() {
   if (player) return player;
@@ -142,6 +142,9 @@ function getPlayer() {
   return player;
 }
 function stopAudio() {
+  /* 递增令牌：让上一次播放的在途重试 / error 回调全部作废。
+     快速连点选项时，旧资源的失败回调否则会延迟打断当前选项、读出前一个词。 */
+  playSeq++;
   if (curAudio) { try { curAudio.pause(); curAudio.currentTime = 0; } catch {} curAudio = null; }
   try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch {}
 }
@@ -175,6 +178,8 @@ document.addEventListener('WeixinJSBridgeReady', () => {
 function playUrl(url, slow, btn, onFail) {
   try {
     stopAudio();
+    const seq = playSeq;
+    const alive = () => seq === playSeq;   // 是否仍是「当前这一次」播放
     const a = getPlayer();
     a.onended = a.onerror = null;
     a.pause();
@@ -184,23 +189,25 @@ function playUrl(url, slow, btn, onFail) {
     curAudio = a; bindBtn(a, btn);
     let done = false;
     const fail = () => {
-      if (done) return; done = true;
+      if (done || !alive()) return; done = true;
       if (btn) btn.classList.remove('playing');
       if (onFail) onFail();
     };
     let tries = 0;
     const attempt = () => {
+      if (!alive() || done) return;
       tries++;
       let p;
       try { p = a.play(); } catch { fail(); return; }
       if (p && p.then) {
         p.then(() => { done = true; }).catch(() => {
+          if (!alive()) return;
           if (tries < 2) setTimeout(attempt, 160); else fail();
         });
       } else done = true;   // 不支持 Promise 的老 WebView，交给 onended/onerror
     };
     attempt();
-    a.onerror = () => { if (btn) btn.classList.remove('playing'); if (!done) fail(); };
+    a.onerror = () => { if (!alive() || done) return; if (btn) btn.classList.remove('playing'); fail(); };
     return true;
   } catch { return false; }
 }
@@ -235,11 +242,15 @@ function speak(text, langId, opts = {}) {
   const { btn = null, id = null, slow = false, auto = false, silent = false } = opts;
   const lang = langOf(langId || S.lang);
   if (!S.tts || !lang.ttsOk || !text) return;
+  const hasFile = !!(id && AUDIO_IDS.has(id));
   const fallback = () => {
     if (auto) { toast('🔊 点一下喇叭就能听发音'); return; }
+    /* 有内置音频却没播成时，「点选项/点词块」这类静默调用不再降级到在线音频，
+       避免连点时旧请求的失败回调把当前选项打断、串出别的词。 */
+    if (silent && hasFile) return;
     if (!playTTS(text, lang, slow, btn)) playOnline(text, langId, btn, silent);
   };
-  if (id && AUDIO_IDS.has(id) && playFile(id, slow, btn, fallback)) return;
+  if (hasFile && playFile(id, slow, btn, fallback)) return;
   fallback();
 }
 /* 归一化文本，用来把「选项文字 / 句子词块」匹配回词库里已有的离线 mp3。

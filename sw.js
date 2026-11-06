@@ -1,5 +1,5 @@
 /* Lingoloop Service Worker — 离线可用，不联网、不追踪 */
-const CACHE = 'lingoloop-v7';
+const CACHE = 'lingoloop-v8';
 /* 音频单独放一个常驻缓存：升级版本时只清旧版页面缓存，
    用户已经听过的离线发音不会因为发版而丢失。 */
 const AUDIO_CACHE = 'lingoloop-audio';
