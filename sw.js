@@ -1,5 +1,5 @@
 /* Lingoloop Service Worker — 离线可用，不联网、不追踪 */
-const CACHE = 'lingoloop-v5';
+const CACHE = 'lingoloop-v6';
 const CORE = [
   './', './index.html', './styles.css', './app.js',
   './data/words.js', './data/audio/manifest.js',
@@ -7,29 +7,14 @@ const CORE = [
   './icon-192.png', './icon-512.png'
 ];
 
-/* 安装时预缓存全部内置发音 mp3（432 条：216 单词 + 216 整句例句）。
-   微信内置浏览器首次安装可能较慢，因此分批、并发受限、单个失败不影响安装；
-   没缓存到的音频，运行时 fetch 会按需补缓存，不影响使用。 */
-async function precacheAudio(cache) {
-  try {
-    const res = await fetch('./data/audio/manifest.js');
-    const txt = await res.text();
-    const m = txt.match(/window\.LINGO_AUDIO\s*=\s*(\[[^\]]*\])/);
-    const ids = m ? JSON.parse(m[1]) : [];
-    const BATCH = 12;
-    for (let i = 0; i < ids.length; i += BATCH) {
-      await Promise.all(ids.slice(i, i + BATCH).map((id) =>
-        cache.add('./data/audio/' + encodeURIComponent(id) + '.mp3').catch(() => {})
-      ));
-    }
-  } catch { /* 清单不可读时跳过，运行时仍会按需缓存 */ }
-}
-
+/* 只预缓存 10 个核心文件，保证 install 秒级完成、新版本立刻接管。
+   不在安装时批量预缓存 432 个发音 mp3：微信 / 移动网络下几百个并发请求会
+   长时间占满连接、拖慢首屏，甚至让新 SW 迟迟装不上，用户会一直读到旧缓存。
+   音频改为「按需缓存」——点过一次就写入缓存，之后离线照常播放。 */
 self.addEventListener('install', (e) => {
   e.waitUntil((async () => {
     const c = await caches.open(CACHE);
     await c.addAll(CORE);
-    await precacheAudio(c);
     await self.skipWaiting();
   })());
 });

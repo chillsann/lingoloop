@@ -682,7 +682,7 @@ function viewSettings() {
         <div class="goal-options">${[0.7, 0.9, 1.1].map((r) => `<button class="goal-opt ${S.rate === r ? 'active' : ''}" data-act="rate" data-v="${r}">${r}×</button>`).join('')}</div></div>
       <div style="margin-top:14px;padding:14px 16px;background:var(--green-tint);border:1px solid #dcefe2;border-radius:12px">
         <b style="font-size:13.5px">🎧 内置离线发音 ${AUDIO_IDS.size} 条</b>
-        <p style="font-size:12.5px;color:var(--ink-2);margin:7px 0">西 / 法 / 俄 / 德 / 日 / 韩 / 意 / 葡 / 阿拉伯语共 <b>9 门语言、216 个单词 + 216 句完整例句</b>，全部由微软神经语音生成，多音节短语与整句都能完整朗读。<b>微信、QQ 内置浏览器和离线状态下都能播放</b>，不依赖浏览器语音合成。上海话与闽南话两门方言暂无语音，仍用近似注音练习。</p>
+        <p style="font-size:12.5px;color:var(--ink-2);margin:7px 0">西 / 法 / 俄 / 德 / 日 / 韩 / 意 / 葡 / 阿拉伯语共 <b>9 门语言、216 个单词 + 216 句完整例句</b>，全部由微软神经语音生成，多音节短语与整句都能完整朗读。<b>微信、QQ 内置浏览器都能播放</b>，不依赖浏览器语音合成；每条发音首次播放后自动缓存，之后断网也能听。上海话与闽南话两门方言暂无语音，仍用近似注音练习。</p>
         <p style="font-size:12px;color:var(--ink-3);margin:0 0 10px">当前环境：${voices.length ? `系统语音可用（${voices.length} 个音色）` : '浏览器未提供系统语音（常见于微信内置浏览器）→ 已自动使用内置音频'} · 播放引擎已针对微信 X5 内核解锁${mediaUnlocked ? '（已就绪）' : '（等待首次触摸）'}</p>
         <div class="btn-row" style="justify-content:flex-start;gap:8px;flex-wrap:wrap">
           <button class="btn btn-outline btn-sm" data-act="speak" data-text="hola" data-lang="es" data-id="es-u1-1">🔊 测单词</button>
