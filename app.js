@@ -118,7 +118,7 @@ function beep(ok) {
  * 因此全站只复用一个常驻 <audio> 元素（带 playsinline / x5-playsinline），
  * 首次手势与微信 JSBridge 双重解锁，play() 失败自动重试一次，
  * 仍失败才降级到系统语音合成 / 在线词典音频。
- * 内置音频：data/audio/ 下 432 条 mp3（216 单词 + 216 整句例句），
+ * 内置音频：data/audio/ 下每条词条各 1 个单词 + 1 个整句例句 mp3（清单见 manifest.js），
  * 离线可用，不依赖浏览器 TTS、不依赖任何第三方服务。
  * ------------------------------------------------------------------ */
 const AUDIO_IDS = new Set(window.LINGO_AUDIO || []);
@@ -366,21 +366,34 @@ function buildQuiz(lessonWords, langId, opts = {}) {
 
 /* ------------------------------------------------------------ 答题流程 */
 let Q = null;
-function startQuiz(lessonId, review = false, customWords = null, langId = null) {
+/* 无限练习：从当前语言已开放的词里抽一组，错词与低掌握度优先，可反复刷 */
+function challengeWords(lid) {
+  const pool = wordsOfLang(lid);
+  const shuffle = (a) => a.slice().sort(() => Math.random() - 0.5);
+  const weak = pool.filter((w) => S.mistakes.includes(w.id) || (S.wordStats[w.id]?.lv || 0) <= 1);
+  const rest = pool.filter((w) => !weak.includes(w));
+  return [...shuffle(weak), ...shuffle(rest)].slice(0, 12);
+}
+function startChallenge(lid) {
+  const list = challengeWords(lid);
+  if (!list.length) { toast('这门语言还没有词库'); return; }
+  startQuiz(null, true, list, lid, '无限练习 · 随机组卷');
+}
+function startQuiz(lessonId, review = false, customWords = null, langId = null, titleOverride = null) {
   const lid = langId || S.lang;
   if (S.hearts <= 0 && !review) {
     modal({ ico: '💤', title: '红心用完了', body: '红心每 20 分钟会自动恢复一颗，也可以先去「复习」练练错词（不消耗红心）。这里没有广告，也没有付费墙。', cancel: '', confirm: '知道了' });
     return;
   }
   let ws, title;
-  if (customWords) { ws = customWords; title = '错词专项复习'; }
+  if (customWords) { ws = customWords; title = titleOverride || '错词专项复习'; }
   else { const l = lessonById(lessonId); if (!l) return; ws = l.words; title = l.title; }
   if (!ws || !ws.length) { toast('这节课还没有词'); return; }
   Q = {
     questions: buildQuiz(ws, lid, { count: customWords ? Math.min(10, ws.length * 2) : undefined }),
     idx: 0, correct: 0, wrong: 0, mistakes: [],
     hearts: review ? HEARTS_MAX : S.hearts, xp: 0,
-    lessonId, review, title, langId: lid,
+    lessonId, review, title, langId: lid, challenge: !!titleOverride,
     checked: false, selected: null, placed: [], out: false
   };
   $('#overlay').classList.remove('hidden');
@@ -547,6 +560,7 @@ function renderResult() {
   const emoji = f.ranOut ? '💤' : f.acc >= 90 ? '🎉' : f.acc >= 60 ? '👍' : '🌱';
   const heading = f.ranOut ? '红心用完啦' : f.acc >= 90 ? '太棒了！' : f.acc >= 60 ? '完成一节课' : '继续加油';
   const sub = f.ranOut ? '休息一下，红心会自动恢复；或者去「复习」练错词，不消耗红心。'
+    : Q.challenge ? '无限练习不消耗红心、也不占课程进度，想刷多少组都行。'
     : Q.review ? '错词又少了一批，掌握度正在上升。'
     : f.firstTime ? `${lang.name}的新课程已解锁，连胜继续保持。` : '复习旧课也能巩固记忆，经验值按一半计算。';
   const list = Q.mistakes.map(wordById).filter(Boolean);
@@ -563,7 +577,7 @@ function renderResult() {
       <div class="result-actions">
         ${f.ranOut ? `<button class="btn btn-primary btn-lg" data-act="go-review">去复习错词（不扣红心）</button>` : ''}
         <button class="btn ${f.ranOut ? 'btn-outline' : 'btn-primary'} btn-lg" data-act="quit-force">返回${esc(lang.name)}课程地图</button>
-        ${!f.ranOut ? `<button class="btn btn-ghost" data-act="again">再练一次</button>` : ''}
+        ${!f.ranOut ? `<button class="btn btn-ghost" data-act="again">${Q.challenge ? '换一组再练 →' : '再练一次'}</button>` : ''}
       </div></div>`;
 }
 
@@ -595,6 +609,9 @@ function langPicker() {
 }
 function viewLearn() {
   const lang = curLang(), goal = S.dailyGoal || 20;
+  const langUnits = unitsOfLang(lang.id);
+  const levels = [...new Set(langUnits.map((u) => u.level || 'A1'))];
+  const levelStat = levels.map((lv) => `${lv} ${langUnits.filter((u) => (u.level || 'A1') === lv).length} 单元`).join(' · ');
   const pctGoal = clamp(Math.round(S.todayXp / goal * 100), 0, 100), deg = Math.round(pctGoal * 3.6);
   const next = lessonsOfLang(lang.id).find((l) => !S.completed.includes(l.id));
   const nextUnit = next ? unitById(next.unitId) : null, lp = langProgress(lang.id);
@@ -604,25 +621,36 @@ function viewLearn() {
   ];
   return `<div class="hero"><div>
       <h2>${S.todayXp >= goal ? '今日目标已完成 🎉' : `今天学点${esc(lang.name)}吧`}</h2>
-      <p>${nextUnit ? `下一站：<b>${esc(nextUnit.title)}</b> · ${esc(next.title)}` : `${esc(lang.name)}全部通关了，换门语言或去复习巩固。`}</p>
+      <p>${nextUnit ? `下一站：<b>${esc(nextUnit.title)}</b> · ${esc(next.title)}（第 ${lp.done + 1} / ${lp.total} 课）` : `已学完当前开放的 ${lp.total} 课 · 用无限练习继续巩固，课程会持续更新`}</p>
       <p class="lang-tip">${esc(lang.tip)}</p>
       <div class="hero-goal"><div class="goal-row"><span>今日目标</span><span>${S.todayXp} / ${goal} XP</span></div>
         <div class="bar"><i style="width:${pctGoal}%"></i></div></div>
       <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
-        <button class="btn btn-primary" data-act="continue">${next ? '继续学习 →' : '自由复习 →'}</button>
+        <button class="btn btn-primary" data-act="continue">${next ? '继续学习 →' : '♾️ 无限练习 →'}</button>
+        ${next ? '<button class="btn btn-ghost" data-act="challenge">♾️ 无限练习</button>' : ''}
         <button class="btn btn-ghost" data-act="nav" data-r="review">复习错词 ${S.mistakes.length ? `(${S.mistakes.length})` : ''}</button></div>
     </div><div class="hero-ring" style="background:conic-gradient(var(--green) ${deg}deg,#e6efe8 ${deg}deg)">
       <div><b>${pctGoal}%</b><span>今日进度</span></div></div></div>
     <div class="tile-grid">${tiles.map((t) => `<div class="tile"><div class="tile-ico">${t.ico}</div><b>${t.v}</b><span>${t.l}</span></div>`).join('')}</div>
     ${langPicker()}
-    <div class="section-label">${esc(lang.name)}课程地图 · ${unitsOfLang(lang.id).length} 个单元 / ${wordsOfLang(lang.id).length} 个词</div>
-    ${unitsOfLang(lang.id).map((u, ui) => {
+    <div class="card roadmap-card">
+      <h3 class="card-title">🗺️ ${esc(lang.name)}课程路线</h3>
+      <div class="roadmap-steps">
+        <span class="rm-step on">A1 基础</span>
+        <span class="rm-step ${levels.includes('A2') ? 'on' : 'todo'}">A2 进阶${levels.includes('A2') ? '' : ' · 规划中'}</span>
+        <span class="rm-step todo">B1 · 规划中</span><span class="rm-step todo">B2 · 规划中</span>
+      </div>
+      <p class="card-sub">当前开放 <b>${langUnits.length}</b> 个单元 / <b>${wordsOfLang(lang.id).length}</b> 个词 / <b>${lp.total}</b> 课，已完成 ${lp.done} 课。每单元 3 课（基础词汇 → 进阶词汇 → 综合练习），做完自动解锁下一单元。B1/B2 需要成体系的语法、长文听力与写作训练，目前仍在规划。</p>
+    </div>
+    <div class="section-label">${esc(lang.name)}课程地图 · ${langUnits.length} 个单元 / ${wordsOfLang(lang.id).length} 个词 / ${lp.total} 课${levels.length > 1 ? `（${levelStat}）` : ''}</div>
+    ${langUnits.map((u, ui) => {
       const p = unitProgress(u);
       return `<section class="unit"><div class="unit-head" style="background:${esc(lang.color)}">
         <div class="unit-ico">${esc(u.icon || '📘')}</div>
-        <div class="unit-head-text"><h3>单元 ${ui + 1} · ${esc(u.title)}</h3><p>${esc(u.subtitle || '')}</p></div>
+        <div class="unit-head-text"><h3>单元 ${ui + 1} · ${esc(u.title)} <span class="lv-badge">${esc(u.level || 'A1')}</span></h3><p>${esc(u.subtitle || '')}</p></div>
         <div class="unit-progress">${p.done}/${p.total} 课</div></div>
         <div class="unit-body">
+          ${u.grammar ? `<p class="unit-grammar">📖 ${esc(u.grammar)}</p>` : ''}
           <p class="unit-note">${esc((u.words[0] || {}).word || '')}、${esc((u.words[1] || {}).word || '')}… 共 ${u.words.length} 个词，学完解锁下一单元。</p>
           <div class="path"><div class="path-dots">• • •</div>
           ${lessonsOf(u).map((l, li) => {
@@ -633,7 +661,11 @@ function viewLearn() {
                 ${unlocked ? (done ? '<span class="check">✓</span>' : (li === 2 ? '⭐' : '📖')) : '🔒'}</button>
                 <div class="lesson-label ${unlocked ? '' : 'locked'}">${esc(l.title)}${done ? `<div class="lesson-stars">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</div>` : ''}</div></div></div>`;
           }).join('')}<div class="path-dots">• • •</div></div></div></section>`;
-    }).join('')}`;
+    }).join('')}
+    <div class="card todo-card">
+      <h3 class="card-title">🚧 后面的课程还在修</h3>
+      <p class="card-sub">A1 / A2 打的是词汇和常用句型；要真正走到 B1、B2，还得加语法体系、动词变位表、长文阅读、听写与口语练习。这些会按单元逐步补上，已完成的进度不会丢。现在想多练，点「♾️ 无限练习」——从学过的词随机组卷、不限次数，不消耗红心。</p>
+    </div>`;
 }
 function viewReview() {
   const list = S.mistakes.map(wordById).filter(Boolean);
@@ -733,7 +765,7 @@ function viewSettings() {
         <div class="goal-options">${[0.7, 0.9, 1.1].map((r) => `<button class="goal-opt ${S.rate === r ? 'active' : ''}" data-act="rate" data-v="${r}">${r}×</button>`).join('')}</div></div>
       <div style="margin-top:14px;padding:14px 16px;background:var(--green-tint);border:1px solid #dcefe2;border-radius:12px">
         <b style="font-size:13.5px">🎧 内置离线发音 ${AUDIO_IDS.size} 条</b>
-        <p style="font-size:12.5px;color:var(--ink-2);margin:7px 0">西 / 法 / 俄 / 德 / 日 / 韩 / 意 / 葡 / 阿拉伯语共 <b>9 门语言、216 个单词 + 216 句完整例句</b>，全部由微软神经语音生成，多音节短语与整句都能完整朗读。<b>微信、QQ 内置浏览器都能播放</b>，不依赖浏览器语音合成；每条发音首次播放后自动缓存，之后断网也能听。<b>答题时点选项即发音，按「检查」后自动朗读整句</b>（可在上面单独关掉）。上海话与闽南话两门方言暂无语音，仍用近似注音练习。</p>
+        <p style="font-size:12.5px;color:var(--ink-2);margin:7px 0">西 / 法 / 俄 / 德 / 日 / 韩 / 意 / 葡 / 阿拉伯语共 <b>${LANGS.filter((l) => l.ttsOk).length} 门语言、${[...AUDIO_IDS].filter((id) => !id.endsWith('-ex')).length} 个单词 + ${[...AUDIO_IDS].filter((id) => id.endsWith('-ex')).length} 句完整例句</b>，全部由微软神经语音生成，多音节短语与整句都能完整朗读。<b>微信、QQ 内置浏览器都能播放</b>，不依赖浏览器语音合成；每条发音首次播放后自动缓存，之后断网也能听。<b>答题时点选项即发音，按「检查」后自动朗读整句</b>（可在上面单独关掉）。上海话与闽南话两门方言暂无语音，仍用近似注音练习。</p>
         <p style="font-size:12px;color:var(--ink-3);margin:0 0 10px">当前环境：${voices.length ? `系统语音可用（${voices.length} 个音色）` : '浏览器未提供系统语音（常见于微信内置浏览器）→ 已自动使用内置音频'} · 播放引擎已针对微信 X5 内核解锁${mediaUnlocked ? '（已就绪）' : '（等待首次触摸）'}</p>
         <div class="btn-row" style="justify-content:flex-start;gap:8px;flex-wrap:wrap">
           <button class="btn btn-outline btn-sm" data-act="speak" data-text="hola" data-lang="es" data-id="es-u1-1">🔊 测单词</button>
@@ -815,8 +847,9 @@ document.addEventListener('click', (e) => {
   if (act === 'lang') { S.lang = el.dataset.id; save(); render(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
   if (act === 'continue') {
     const next = lessonsOfLang(S.lang).find((l) => !S.completed.includes(l.id));
-    if (next) startQuiz(next.id, false, null, S.lang); else go('review'); return;
+    if (next) startQuiz(next.id, false, null, S.lang); else startChallenge(S.lang); return;
   }
+  if (act === 'challenge') { startChallenge(S.lang); return; }
   if (act === 'locked') { toast('🔒 先完成这门语言前面的课程就能解锁'); return; }
   if (act === 'lesson') { const l = lessonById(el.dataset.id); startQuiz(el.dataset.id, false, null, l ? l.langId : S.lang); return; }
   if (act === 'speak') { speak(el.dataset.text, el.dataset.lang || S.lang, { btn: el, id: el.dataset.id }); return; }
@@ -824,8 +857,9 @@ document.addEventListener('click', (e) => {
   if (act === 'quit') { closeQuiz(); return; }
   if (act === 'quit-force') { closeQuiz(true); return; }
   if (act === 'again') {
-    const id = Q.lessonId, rev = Q.review, lid = Q.langId; closeQuiz(true);
-    if (rev && !id) startQuiz(null, true, S.mistakes.map(wordById).filter((w) => w && w.langId === lid), lid);
+    const id = Q.lessonId, rev = Q.review, lid = Q.langId, wasCh = Q.challenge; closeQuiz(true);
+    if (wasCh) startChallenge(lid);
+    else if (rev && !id) startQuiz(null, true, S.mistakes.map(wordById).filter((w) => w && w.langId === lid), lid);
     else startQuiz(id, rev, null, lid); return;
   }
   if (act === 'select') {

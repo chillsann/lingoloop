@@ -123,6 +123,20 @@ b, strong { font-weight: 700; }
   text-transform: uppercase; color: var(--ink-3); margin: 30px 0 12px;
 }
 
+/* 课程路线图 */
+.roadmap-card { padding: 22px 24px; margin-top: 18px; }
+.roadmap-steps { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 12px; }
+.rm-step {
+  font-size: 12px; font-weight: 750; padding: 7px 13px; border-radius: 99px;
+  border: 1px solid var(--line-2); color: var(--ink-3); background: var(--surface-soft);
+  white-space: nowrap;
+}
+.rm-step.on { background: var(--green); color: #fff; border-color: var(--green); box-shadow: 0 2px 0 var(--green-dark); }
+.rm-step.todo { border-style: dashed; background: transparent; }
+.roadmap-card .card-sub, .todo-card .card-sub { margin: 0; line-height: 1.75; }
+.roadmap-card .card-sub b { color: var(--ink); }
+.todo-card { background: var(--surface-soft); box-shadow: none; border-style: dashed; }
+
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   padding: 12px 22px; border-radius: 13px;
@@ -197,6 +211,16 @@ b, strong { font-weight: 700; }
 .unit-progress { font-size: 12px; font-weight: 750; background: rgba(255,255,255,.2); padding: 5px 11px; border-radius: 99px; white-space: nowrap; }
 .unit-body { padding: 22px 22px 30px; }
 .unit-note { font-size: 13px; color: var(--ink-2); margin: 0 0 18px; }
+.lv-badge {
+  display: inline-block; font-size: 10px; font-weight: 800; letter-spacing: .6px;
+  padding: 2px 7px; border-radius: 99px; background: rgba(255,255,255,.24);
+  vertical-align: 2px; margin-left: 4px;
+}
+.unit-grammar {
+  font-size: 12.5px; line-height: 1.65; color: var(--green-dark);
+  background: #f2f8f3; border-left: 3px solid var(--green);
+  border-radius: 0 8px 8px 0; padding: 9px 12px; margin: 0 0 14px;
+}
 .path { display: flex; flex-direction: column; align-items: center; gap: 16px; }
 .path-row { display: flex; justify-content: center; gap: clamp(16px, 5vw, 48px); width: 100%; }
 .lesson-wrap { display: flex; flex-direction: column; align-items: center; gap: 7px; min-width: 92px; }

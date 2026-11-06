@@ -34,7 +34,7 @@ const LANGS = [
 
 const BUILTIN_UNITS = [
   /* ============================ 西班牙语 ============================ */
-  { id: 'es-u1', langId: 'es', title: '打招呼', subtitle: 'Saludos', icon: '👋', words: [
+  { id: 'es-u1', langId: 'es', title: '打招呼', subtitle: 'Saludos', icon: '👋', level: 'A1', grammar: '问候用倒装符号：¡Hola! 开头、¿Cómo estás? 结尾都要成对写。', words: [
     { id:'es-u1-1', word:'hola',        zh:'你好',     pron:'/ˈola/',        ex:'¡Hola! ¿Cómo estás?',        exZh:'你好！你好吗？' },
     { id:'es-u1-2', word:'adiós',       zh:'再见',     pron:'/aˈðjos/',      ex:'Adiós, hasta mañana.',       exZh:'再见，明天见。' },
     { id:'es-u1-3', word:'gracias',     zh:'谢谢',     pron:'/ˈɡɾasjas/',    ex:'Muchas gracias.',            exZh:'非常感谢。' },
@@ -44,7 +44,7 @@ const BUILTIN_UNITS = [
     { id:'es-u1-7', word:'perdón',      zh:'对不起；打扰一下', pron:'/peɾˈðon/', ex:'Perdón, ¿dónde está?', exZh:'打扰一下，在哪里？' },
     { id:'es-u1-8', word:'bien',        zh:'好',       pron:'/bjen/',        ex:'Estoy muy bien.',            exZh:'我很好。' }
   ]},
-  { id: 'es-u2', langId: 'es', title: '日常生活', subtitle: 'La vida diaria', icon: '☀️', words: [
+  { id: 'es-u2', langId: 'es', title: '日常生活', subtitle: 'La vida diaria', icon: '☀️', level: 'A1', grammar: '名词分阴阳：la casa、el trabajo；agua 是阴性但用 el agua。', words: [
     { id:'es-u2-1', word:'agua',        zh:'水',       pron:'/ˈaɣwa/',       ex:'¿Me da un vaso de agua?',    exZh:'能给我一杯水吗？' },
     { id:'es-u2-2', word:'comida',      zh:'食物；饭', pron:'/koˈmiða/',     ex:'La comida está lista.',      exZh:'饭做好了。' },
     { id:'es-u2-3', word:'casa',        zh:'家；房子', pron:'/ˈkasa/',       ex:'Vuelvo a casa.',             exZh:'我回家。' },
@@ -54,7 +54,7 @@ const BUILTIN_UNITS = [
     { id:'es-u2-7', word:'mañana',      zh:'明天',     pron:'/maˈɲana/',     ex:'Nos vemos mañana.',          exZh:'明天见。' },
     { id:'es-u2-8', word:'amigo',       zh:'朋友',     pron:'/aˈmiɣo/',      ex:'Es mi amigo.',               exZh:'这是我朋友。' }
   ]},
-  { id: 'es-u3', langId: 'es', title: '出行与购物', subtitle: 'De compras', icon: '🛍️', words: [
+  { id: 'es-u3', langId: 'es', title: '出行与购物', subtitle: 'De compras', icon: '🛍️', level: 'A1', grammar: '问价格用 ¿Cuánto cuesta?；cuánto 会随名词变成 cuánta / cuántos。', words: [
     { id:'es-u3-1', word:'cuánto',      zh:'多少钱',   pron:'/ˈkwanto/',     ex:'¿Cuánto cuesta?',            exZh:'多少钱？' },
     { id:'es-u3-2', word:'tren',        zh:'火车',     pron:'/tɾen/',        ex:'El tren sale a las ocho.',   exZh:'火车八点开。' },
     { id:'es-u3-3', word:'calle',       zh:'街道',     pron:'/ˈkaʎe/',       ex:'Vivo en esta calle.',        exZh:'我住在这条街。' },
@@ -383,6 +383,126 @@ const BUILTIN_UNITS = [
     { id:'mn-u3-6', word:'彼个',     zh:'那个',     pron:'hit e',       ex:'彼个予我看一下。',       exZh:'那个给我看一下。' },
     { id:'mn-u3-7', word:'便所',     zh:'洗手间',   pron:'pian soo',    ex:'便所伫叨位？',           exZh:'洗手间在哪儿？' },
     { id:'mn-u3-8', word:'斗相共',   zh:'帮忙；搭把手', pron:'tau sio kang', ex:'斗相共一下！',       exZh:'帮个忙！' }
+  ]},
+  { id: 'es-u4', langId: 'es', level: 'A1', title: '数字与计数', subtitle: 'Los números', icon: '🔢', grammar: '数字 1–10 先记牢；uno 在阳性名词前要短化成 un（un café）。', words: [
+    { id:'es-u4-1', word:'uno', zh:'一', pron:'/ˈuno/', ex:'Uno, dos, tres.', exZh:'一、二、三。' },
+    { id:'es-u4-2', word:'dos', zh:'二', pron:'/dos/', ex:'Quiero dos cafés.', exZh:'我要两杯咖啡。' },
+    { id:'es-u4-3', word:'tres', zh:'三', pron:'/tɾes/', ex:'Tres personas, por favor.', exZh:'三个人，谢谢。' },
+    { id:'es-u4-4', word:'diez', zh:'十', pron:'/ˈdjes/', ex:'Son las diez.', exZh:'现在十点。' },
+    { id:'es-u4-5', word:'cien', zh:'一百', pron:'/ˈsjen/', ex:'Cuesta cien euros.', exZh:'要一百欧元。' },
+    { id:'es-u4-6', word:'primero', zh:'第一', pron:'/pɾiˈmeɾo/', ex:'Es mi primer día.', exZh:'这是我第一天。' },
+    { id:'es-u4-7', word:'mucho', zh:'很多', pron:'/ˈmutʃo/', ex:'Mucho gusto.', exZh:'很高兴认识你。' },
+    { id:'es-u4-8', word:'poco', zh:'一点；少', pron:'/ˈpoko/', ex:'Un poco de azúcar.', exZh:'一点糖。' }
+  ]},
+  { id: 'es-u5', langId: 'es', level: 'A1', title: '自我介绍', subtitle: 'Presentarse', icon: '🙋', grammar: 'ser 表身份与来源，tener 表年龄：西语说「我有 20 岁」而不是「我是 20 岁」。', words: [
+    { id:'es-u5-1', word:'me llamo', zh:'我叫', pron:'/me ˈʝamo/', ex:'Me llamo Ana.', exZh:'我叫安娜。' },
+    { id:'es-u5-2', word:'soy', zh:'我是', pron:'/soj/', ex:'Soy chino.', exZh:'我是中国人。' },
+    { id:'es-u5-3', word:'nombre', zh:'名字', pron:'/ˈnombɾe/', ex:'¿Cuál es tu nombre?', exZh:'你叫什么名字？' },
+    { id:'es-u5-4', word:'de', zh:'从；来自', pron:'/de/', ex:'Soy de Shanghái.', exZh:'我来自上海。' },
+    { id:'es-u5-5', word:'vivo', zh:'我住', pron:'/ˈbiβo/', ex:'Vivo en Madrid.', exZh:'我住在马德里。' },
+    { id:'es-u5-6', word:'años', zh:'岁；年', pron:'/ˈaɲos/', ex:'Tengo veinte años.', exZh:'我二十岁。' },
+    { id:'es-u5-7', word:'gusto', zh:'高兴；愉快', pron:'/ˈɡusto/', ex:'Mucho gusto en conocerte.', exZh:'很高兴认识你。' },
+    { id:'es-u5-8', word:'también', zh:'也', pron:'/tamˈbjen/', ex:'Yo también.', exZh:'我也是。' }
+  ]},
+  { id: 'es-u6', langId: 'es', level: 'A1', title: '家庭与人物', subtitle: 'La familia', icon: '👨‍👩‍👧', grammar: '物主词 mi / tu / su 不随名词变；名词与形容词要分阴阳单复数。', words: [
+    { id:'es-u6-1', word:'familia', zh:'家庭', pron:'/faˈmilja/', ex:'Mi familia es grande.', exZh:'我家人口多。' },
+    { id:'es-u6-2', word:'madre', zh:'母亲', pron:'/ˈmaðɾe/', ex:'Mi madre cocina bien.', exZh:'我妈妈做饭很好吃。' },
+    { id:'es-u6-3', word:'padre', zh:'父亲', pron:'/ˈpaðɾe/', ex:'Mi padre trabaja aquí.', exZh:'我爸爸在这儿工作。' },
+    { id:'es-u6-4', word:'hijo', zh:'儿子', pron:'/ˈixo/', ex:'Tengo un hijo.', exZh:'我有一个儿子。' },
+    { id:'es-u6-5', word:'hermana', zh:'姐妹', pron:'/eɾˈmana/', ex:'Mi hermana estudia.', exZh:'我姐姐在读书。' },
+    { id:'es-u6-6', word:'esposo', zh:'丈夫', pron:'/esˈposo/', ex:'Su esposo es médico.', exZh:'她丈夫是医生。' },
+    { id:'es-u6-7', word:'niño', zh:'小孩', pron:'/ˈniɲo/', ex:'El niño juega.', exZh:'小孩在玩。' },
+    { id:'es-u6-8', word:'persona', zh:'人', pron:'/peɾˈsona/', ex:'Es una persona amable.', exZh:'他是个和善的人。' }
+  ]},
+  { id: 'es-u7', langId: 'es', level: 'A1', title: '饮食', subtitle: 'Comer y beber', icon: '🍽️', grammar: '点东西用 querer + 名词：Quiero un café；不可数食物用 un poco de。', words: [
+    { id:'es-u7-1', word:'desayuno', zh:'早餐', pron:'/desaˈʝuno/', ex:'Tomo el desayuno a las siete.', exZh:'我七点吃早饭。' },
+    { id:'es-u7-2', word:'pan', zh:'面包', pron:'/pan/', ex:'Quiero pan con mantequilla.', exZh:'我要黄油面包。' },
+    { id:'es-u7-3', word:'café', zh:'咖啡', pron:'/kaˈfe/', ex:'Un café con leche.', exZh:'一杯牛奶咖啡。' },
+    { id:'es-u7-4', word:'arroz', zh:'米饭', pron:'/aˈros/', ex:'El arroz está listo.', exZh:'米饭好了。' },
+    { id:'es-u7-5', word:'carne', zh:'肉', pron:'/ˈkaɾne/', ex:'No como carne.', exZh:'我不吃肉。' },
+    { id:'es-u7-6', word:'pescado', zh:'鱼', pron:'/pesˈkaðo/', ex:'El pescado es fresco.', exZh:'这鱼很新鲜。' },
+    { id:'es-u7-7', word:'verdura', zh:'蔬菜', pron:'/beɾˈðuɾa/', ex:'Come más verdura.', exZh:'多吃点蔬菜。' },
+    { id:'es-u7-8', word:'bebida', zh:'饮料', pron:'/beˈβiða/', ex:'¿Qué bebida quieres?', exZh:'你想喝什么？' }
+  ]},
+  { id: 'es-u8', langId: 'es', level: 'A1', title: '时间与日期', subtitle: 'La hora y la fecha', icon: '🕐', grammar: '问时间用 ser：¿Qué hora es? / Son las diez；「在下午」用 por la tarde。', words: [
+    { id:'es-u8-1', word:'hora', zh:'小时；点钟', pron:'/ˈoɾa/', ex:'¿Qué hora es?', exZh:'现在几点？' },
+    { id:'es-u8-2', word:'día', zh:'天；日', pron:'/ˈdia/', ex:'Hoy es un buen día.', exZh:'今天是个好日子。' },
+    { id:'es-u8-3', word:'semana', zh:'星期', pron:'/seˈmana/', ex:'Nos vemos la próxima semana.', exZh:'下周见。' },
+    { id:'es-u8-4', word:'mes', zh:'月', pron:'/mes/', ex:'El mes que viene.', exZh:'下个月。' },
+    { id:'es-u8-5', word:'año', zh:'年', pron:'/ˈaɲo/', ex:'Feliz año nuevo.', exZh:'新年快乐。' },
+    { id:'es-u8-6', word:'lunes', zh:'星期一', pron:'/ˈlunes/', ex:'El lunes empiezo.', exZh:'我周一开始。' },
+    { id:'es-u8-7', word:'ahora', zh:'现在', pron:'/aˈoɾa/', ex:'Salgo ahora.', exZh:'我现在出门。' },
+    { id:'es-u8-8', word:'tarde', zh:'下午', pron:'/ˈtaɾðe/', ex:'Nos vemos por la tarde.', exZh:'下午见。' }
+  ]},
+  { id: 'es-u9', langId: 'es', level: 'A1', title: '颜色与形容', subtitle: 'Colores y adjetivos', icon: '🎨', grammar: '形容词一般放在名词后，且要跟着变：rojo / roja / rojos / rojas。', words: [
+    { id:'es-u9-1', word:'rojo', zh:'红色', pron:'/ˈroxo/', ex:'El coche es rojo.', exZh:'车是红色的。' },
+    { id:'es-u9-2', word:'azul', zh:'蓝色', pron:'/aˈsul/', ex:'El cielo está azul.', exZh:'天空是蓝的。' },
+    { id:'es-u9-3', word:'blanco', zh:'白色', pron:'/ˈblaŋko/', ex:'Una camisa blanca.', exZh:'一件白衬衫。' },
+    { id:'es-u9-4', word:'negro', zh:'黑色', pron:'/ˈneɣɾo/', ex:'Prefiero el negro.', exZh:'我更喜欢黑的。' },
+    { id:'es-u9-5', word:'grande', zh:'大', pron:'/ˈɡɾande/', ex:'Una casa grande.', exZh:'一栋大房子。' },
+    { id:'es-u9-6', word:'pequeño', zh:'小', pron:'/peˈkeɲo/', ex:'Un piso pequeño.', exZh:'一间小公寓。' },
+    { id:'es-u9-7', word:'nuevo', zh:'新', pron:'/ˈnweβo/', ex:'Tengo un móvil nuevo.', exZh:'我有部新手机。' },
+    { id:'es-u9-8', word:'bonito', zh:'漂亮', pron:'/boˈnito/', ex:'¡Qué bonito es!', exZh:'真好看！' }
+  ]},
+  { id: 'es-u10', langId: 'es', level: 'A2', title: '天气与季节', subtitle: 'El tiempo', icon: '🌤️', grammar: '天气不用「是」，用 hacer / hay：Hace frío、Hace sol、Hay viento。', words: [
+    { id:'es-u10-1', word:'sol', zh:'太阳', pron:'/sol/', ex:'Hace sol.', exZh:'天晴。' },
+    { id:'es-u10-2', word:'lluvia', zh:'雨', pron:'/ˈʝuβja/', ex:'La lluvia no para.', exZh:'雨下个不停。' },
+    { id:'es-u10-3', word:'frío', zh:'冷', pron:'/ˈfɾio/', ex:'Hace mucho frío.', exZh:'天很冷。' },
+    { id:'es-u10-4', word:'calor', zh:'热', pron:'/kaˈloɾ/', ex:'Hace calor hoy.', exZh:'今天很热。' },
+    { id:'es-u10-5', word:'viento', zh:'风', pron:'/ˈbjento/', ex:'Hay mucho viento.', exZh:'风很大。' },
+    { id:'es-u10-6', word:'nube', zh:'云', pron:'/ˈnuβe/', ex:'Hay nubes grises.', exZh:'有乌云。' },
+    { id:'es-u10-7', word:'verano', zh:'夏天', pron:'/beˈɾano/', ex:'En verano viajo.', exZh:'夏天我去旅行。' },
+    { id:'es-u10-8', word:'invierno', zh:'冬天', pron:'/imˈbjeɾno/', ex:'El invierno es corto aquí.', exZh:'这儿冬天很短。' }
+  ]},
+  { id: 'es-u11', langId: 'es', level: 'A2', title: '方位与问路', subtitle: 'Direcciones', icon: '🧭', grammar: '问路常用命令式：Gire a la derecha / Siga todo recto；a la + 方向。', words: [
+    { id:'es-u11-1', word:'derecha', zh:'右边', pron:'/deˈɾetʃa/', ex:'Gire a la derecha.', exZh:'向右转。' },
+    { id:'es-u11-2', word:'izquierda', zh:'左边', pron:'/isˈkjeɾða/', ex:'Está a la izquierda.', exZh:'在左边。' },
+    { id:'es-u11-3', word:'recto', zh:'直；笔直', pron:'/ˈrekto/', ex:'Siga todo recto.', exZh:'一直往前走。' },
+    { id:'es-u11-4', word:'cerca', zh:'近', pron:'/ˈseɾka/', ex:'Está muy cerca.', exZh:'很近。' },
+    { id:'es-u11-5', word:'lejos', zh:'远', pron:'/ˈlexos/', ex:'No está lejos.', exZh:'不远。' },
+    { id:'es-u11-6', word:'esquina', zh:'拐角', pron:'/esˈkina/', ex:'En la esquina hay un banco.', exZh:'拐角有家银行。' },
+    { id:'es-u11-7', word:'metro', zh:'地铁', pron:'/ˈmetɾo/', ex:'Tome el metro, línea dos.', exZh:'坐地铁二号线。' },
+    { id:'es-u11-8', word:'mapa', zh:'地图', pron:'/ˈmapa/', ex:'¿Tiene un mapa?', exZh:'有地图吗？' }
+  ]},
+  { id: 'es-u12', langId: 'es', level: 'A2', title: '身体与健康', subtitle: 'El cuerpo y la salud', icon: '🩺', grammar: '说疼用 me duele + 身体部位（不是「我疼」，而是「头让我疼」）。', words: [
+    { id:'es-u12-1', word:'cabeza', zh:'头', pron:'/kaˈβesa/', ex:'Me duele la cabeza.', exZh:'我头疼。' },
+    { id:'es-u12-2', word:'mano', zh:'手', pron:'/ˈmano/', ex:'Lávate las manos.', exZh:'洗洗手。' },
+    { id:'es-u12-3', word:'ojo', zh:'眼睛', pron:'/ˈoxo/', ex:'Tengo los ojos cansados.', exZh:'我眼睛很累。' },
+    { id:'es-u12-4', word:'pie', zh:'脚', pron:'/pje/', ex:'Me duele el pie.', exZh:'我脚疼。' },
+    { id:'es-u12-5', word:'médico', zh:'医生', pron:'/ˈmeðiko/', ex:'Necesito un médico.', exZh:'我需要看医生。' },
+    { id:'es-u12-6', word:'farmacia', zh:'药店', pron:'/faɾˈmasja/', ex:'La farmacia está abierta.', exZh:'药店开着。' },
+    { id:'es-u12-7', word:'enfermo', zh:'生病的', pron:'/emˈfeɾmo/', ex:'Estoy un poco enfermo.', exZh:'我有点不舒服。' },
+    { id:'es-u12-8', word:'descansar', zh:'休息', pron:'/deskanˈsaɾ/', ex:'Necesito descansar.', exZh:'我需要休息。' }
+  ]},
+  { id: 'es-u13', langId: 'es', level: 'A2', title: '工作与学习', subtitle: 'Trabajo y estudio', icon: '💼', grammar: '介词 en 表地点、a 表方向、de 表所属：estudiante de español。', words: [
+    { id:'es-u13-1', word:'oficina', zh:'办公室', pron:'/ofiˈsina/', ex:'Trabajo en una oficina.', exZh:'我在办公室上班。' },
+    { id:'es-u13-2', word:'reunión', zh:'会议', pron:'/reuˈnjon/', ex:'La reunión empieza a las nueve.', exZh:'会议九点开始。' },
+    { id:'es-u13-3', word:'correo', zh:'邮件', pron:'/koˈreo/', ex:'Le envío un correo.', exZh:'我给他发封邮件。' },
+    { id:'es-u13-4', word:'escuela', zh:'学校', pron:'/esˈkwela/', ex:'La escuela está cerca.', exZh:'学校很近。' },
+    { id:'es-u13-5', word:'estudiante', zh:'学生', pron:'/estuˈðjante/', ex:'Soy estudiante de español.', exZh:'我是西语学生。' },
+    { id:'es-u13-6', word:'profesor', zh:'老师', pron:'/pɾofeˈsoɾ/', ex:'El profesor explica despacio.', exZh:'老师讲得很慢。' },
+    { id:'es-u13-7', word:'examen', zh:'考试', pron:'/eɣˈsamen/', ex:'El examen es mañana.', exZh:'明天考试。' },
+    { id:'es-u13-8', word:'aprender', zh:'学习', pron:'/apɾenˈdeɾ/', ex:'Quiero aprender español.', exZh:'我想学西语。' }
+  ]},
+  { id: 'es-u14', langId: 'es', level: 'A2', title: '核心动词', subtitle: 'Verbos esenciales', icon: '⚡', grammar: 'ser 表本质、estar 表状态与位置；querer / poder 后面接动词原形。', words: [
+    { id:'es-u14-1', word:'ser', zh:'是（本质）', pron:'/seɾ/', ex:'Soy profesor.', exZh:'我是老师。' },
+    { id:'es-u14-2', word:'estar', zh:'是（状态、位置）', pron:'/esˈtaɾ/', ex:'Estoy en casa.', exZh:'我在家。' },
+    { id:'es-u14-3', word:'tener', zh:'有', pron:'/teˈneɾ/', ex:'Tengo dos hermanos.', exZh:'我有两个兄弟。' },
+    { id:'es-u14-4', word:'hacer', zh:'做', pron:'/aˈseɾ/', ex:'¿Qué haces?', exZh:'你在做什么？' },
+    { id:'es-u14-5', word:'ir', zh:'去', pron:'/iɾ/', ex:'Voy al mercado.', exZh:'我去市场。' },
+    { id:'es-u14-6', word:'venir', zh:'来', pron:'/beˈniɾ/', ex:'¿Vienes conmigo?', exZh:'你跟我一起来吗？' },
+    { id:'es-u14-7', word:'querer', zh:'想要', pron:'/keˈɾeɾ/', ex:'Quiero un café.', exZh:'我想要杯咖啡。' },
+    { id:'es-u14-8', word:'poder', zh:'能；可以', pron:'/poˈðeɾ/', ex:'¿Puedes ayudarme?', exZh:'你能帮我吗？' }
+  ]},
+  { id: 'es-u15', langId: 'es', level: 'A2', title: '过去与计划', subtitle: 'Pasado y planes', icon: '📅', grammar: '简单过去时词尾 -é / -í：compré、viajé；ir 不规则变 fui。', words: [
+    { id:'es-u15-1', word:'ayer', zh:'昨天', pron:'/aˈʝeɾ/', ex:'Ayer fui al cine.', exZh:'昨天我去看电影了。' },
+    { id:'es-u15-2', word:'fui', zh:'我去了', pron:'/fwi/', ex:'Fui a ver a un amigo.', exZh:'我去看了个朋友。' },
+    { id:'es-u15-3', word:'compré', zh:'我买了', pron:'/komˈpɾe/', ex:'Compré un libro.', exZh:'我买了一本书。' },
+    { id:'es-u15-4', word:'viaje', zh:'旅行', pron:'/ˈbjaxe/', ex:'El viaje fue corto.', exZh:'旅行很短。' },
+    { id:'es-u15-5', word:'próximo', zh:'下一个', pron:'/ˈpɾoksimo/', ex:'El próximo fin de semana.', exZh:'下个周末。' },
+    { id:'es-u15-6', word:'planeo', zh:'我计划', pron:'/plaˈneo/', ex:'Planeo viajar en junio.', exZh:'我打算六月去旅行。' },
+    { id:'es-u15-7', word:'anoche', zh:'昨晚', pron:'/aˈnotʃe/', ex:'Anoche llovió.', exZh:'昨晚下雨了。' },
+    { id:'es-u15-8', word:'nunca', zh:'从不', pron:'/ˈnuŋka/', ex:'Nunca llego tarde.', exZh:'我从不迟到。' }
   ]}
 ];
 
